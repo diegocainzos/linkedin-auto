@@ -6,3 +6,5 @@ __pycache__/
 .run.json
 answers.md.bak
 rendercv_output/
+.playwright-mcp/
+run.log

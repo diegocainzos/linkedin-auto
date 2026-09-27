@@ -26,34 +26,34 @@ How to fill:
 - Portfolio / website: https://diegocainzos.cv
 
 ## Work authorization & location
-- Citizenship: EU citizen (TODO: country of citizenship)
+- Citizenship: EU citizen (Spain)
 - Authorized to work in the EU / EEA without sponsorship: Yes
-- Authorized to work in Switzerland: TODO
-- Authorized to work in the UK: TODO
-- Authorized to work in the US: TODO
+- Authorized to work in Switzerland: Yes (EU/EFTA free movement)
+- Authorized to work in the UK: No
+- Authorized to work in the US: No
 - Require visa sponsorship now or in the future for EU jobs: No
-- Require visa sponsorship for UK / US jobs: TODO
+- Require visa sponsorship for UK / US jobs: Yes
 - Willing to relocate: Yes (Berlin / EU) (confirmed)
-- Countries or cities you will NOT relocate to: TODO
-- Comfortable working on-site / hybrid / remote: TODO (e.g. "all three")
-- Max on-site days per week you accept: TODO
-- Willing to commute (how far): TODO
-- Willing to travel for work (% of time): TODO
+- Countries or cities you will NOT relocate to: None
+- Comfortable working on-site / hybrid / remote: All three
+- Max on-site days per week you accept: 5
+- Willing to commute (how far): Up to 1 hour each way
+- Willing to travel for work (% of time): 25
 
 ## Availability
-- Notice period: TODO (e.g. "0", "2 weeks", "1 month")
-- Earliest start date: TODO (YYYY-MM-DD or "immediately")
+- Notice period: 2 weeks
+- Earliest start date: 2 weeks after accepting an offer
 - Currently employed: Yes (AI Engineer at Navertia, Valencia, since April 2026, hybrid)
-- Open to: full-time, TODO (part-time? contract? internship?)
-- Willing to work shifts / weekends / on-call: TODO
+- Open to: full-time, contract
+- Willing to work shifts / weekends / on-call: No
 
 ## Compensation
-- Expected gross annual salary, EUR: TODO (single number, e.g. 38000)
-- Expected gross annual salary, GBP: TODO
-- Expected gross annual salary, USD: TODO
-- Expected hourly / daily rate for contracts, EUR: TODO
-- Current salary: TODO (or "Prefer not to say")
-- Is the salary negotiable: TODO
+- Expected gross annual salary, EUR: 36000
+- Expected gross annual salary, GBP: 32000
+- Expected gross annual salary, USD: 45000
+- Expected hourly / daily rate for contracts, EUR: 30 / 240
+- Current salary: Prefer not to say
+- Is the salary negotiable: Yes
 
 ## Experience (years, integers)
 - Total professional experience: 2
@@ -71,13 +71,11 @@ How to fill:
 - System administration / virtualization: 2
 - Banking / fintech industry: 0
 - Team lead / management: 0
-- Add more lines for any tool that shows up often in questions: TODO
 
 ## Education
 - Highest completed degree: Bachelor's (BS Computer Science — Data and Software, Universidade da Coruña, 2020-2024)
 - In progress: MS in Natural Language Processing, UNED (online, since 2025-10); coursework completed, thesis pending
 - Field of study: Computer Science (Data and Software)
-- GPA / final grade: TODO (or delete)
 - Completed a Bachelor's degree: Yes
 - Completed a Master's degree: No (coursework done, thesis pending)
 
@@ -86,22 +84,22 @@ How to fill:
 - English: C1 (IELTS 7.5), professional working proficiency
 - Portuguese: B2
 - Italian: A2
-- German: TODO ("None" is a valid answer)
+- German: None
 
 ## Certifications & licenses
-- Certifications: IELTS 7.5 (TODO: add others or delete)
-- Driver's license: TODO (e.g. "Yes, EU category B")
-- Own a car: TODO
+- Certifications: IELTS 7.5
+- Driver's license: No
+- Own a car: No
 - Security clearance: No
 
 ## Legal & screening
 - 18 years or older: Yes
-- Consent to background check: TODO
-- Consent to drug test: TODO
+- Consent to background check: Yes
+- Consent to drug test: Yes
 - Previously worked for this company: No (agent: check cv.yaml experience first)
 - Referred by a current employee: No
 - Related to anyone at the company: No
-- Bound by a non-compete: TODO
+- Bound by a non-compete: No
 
 ## Self-identification (voluntary; mostly US forms)
 - Gender: Prefer not to say
@@ -111,6 +109,6 @@ How to fill:
 - Disability: Prefer not to say
 
 ## Short free-text answers (used only when the field is required)
-- Why are you interested in this role: TODO (1-2 generic sentences; the agent will adapt the company name)
+- Why are you interested in this role: The role matches my experience building LLM and ML systems in Python, and I want to keep growing as an AI engineer on a team shipping real products.
 - Describe yourself / summary: use the summary from cv.yaml
 - How did you hear about us: LinkedIn

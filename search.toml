@@ -2,9 +2,11 @@
 # Every key and value is documented in docs/filters.md. Comment a line out to disable that filter.
 
 position = "python developer"      # LinkedIn search keywords
-location = "Spain"                 # country, city, region or "European Union"
+location = "Valencia"              # country, city, region or "European Union"
+browser = "chrome"                 # chrome | brave | edge | chromium | executable path
 
 max_applies = 10                   # stop after N successful applications per run, 0 = unlimited
+# max_time = 2                    # hours; stops after the current job, 0 = unlimited
 max_pages = 3                      # result pages of 25 jobs, 0 = until results run out
 
 posted = "week"                    # 24h | week | month

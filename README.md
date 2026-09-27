@@ -2,7 +2,7 @@
 
 Applies to LinkedIn **Easy Apply** jobs automatically, with a CV tailored to each job.
 
-An agy agent (Gemini 3.8 Flash High) drives a real Chromium browser through Playwright MCP. It searches
+An agy agent (Gemini 3.8 Flash High) drives your own browser (Chrome by default; Brave, Edge or any Chromium-based one) through Playwright MCP. It searches
 LinkedIn with your filters, then for each job it:
 
 1. reads the job description,
@@ -10,10 +10,10 @@ LinkedIn with your filters, then for each job it:
 3. opens Easy Apply, uploads that PDF, fills the form from `answers.md`, submits,
 4. logs the result in `applied.jsonl`.
 
-It stops when it reaches `--max-applies` or `--max-pages`, or when the results run out.
+It stops when it reaches `--max-applies`, `--max-time` or `--max-pages`, or when the results run out.
 
 ```
-jobs.py run ──► agy -p (Gemini) ──► linkedin_playwright MCP ──► Chromium (.browser-profile/)
+jobs.py run ──► agy -p (Gemini) ──► linkedin_playwright MCP = jobs.py mcp ──► your browser (.browser-profile/<browser>/)
                   │
                   ├─► uv run jobs.py tailor ──► agy -p (Gemini) ──► cv yaml ──► rendercv ──► CV.pdf
                   └─► uv run jobs.py log ──► applied.jsonl  (prints LIMIT REACHED to stop)
@@ -23,7 +23,7 @@ jobs.py run ──► agy -p (Gemini) ──► linkedin_playwright MCP ──�
 
 | Path | What it is | You edit it? |
 |---|---|---|
-| `jobs.py` | Everything: the `run`, `tailor` and `log` commands, and the agent prompt | Rarely |
+| `jobs.py` | Everything: the `run`, `login`, `tailor`, `log` and `mcp` commands, and the agent prompt | Rarely |
 | `cv.yaml` | Your base CV in RenderCV format. Its `design`, `locale` and `settings` are kept in every tailored CV | **Yes** |
 | `answers.md` | Answers to Easy Apply questions. The agent only uses this file and `cv.yaml` | **Yes** |
 | `search.toml` | Default search: position, location, limits, filters | **Yes** |
@@ -31,25 +31,27 @@ jobs.py run ──► agy -p (Gemini) ──► linkedin_playwright MCP ──�
 | `docs/filters.md` | Every search filter and its LinkedIn URL code | — |
 | `applications/<company-title>/` | Per job: `CV.yaml` and `CV.pdf` | Generated |
 | `applied.jsonl` | One line per processed job: `ts, company, title, url, status, note` | Generated |
-| `.browser-profile/` | Chromium profile holding your LinkedIn login | Generated |
-| `.run.json` | Start time and limit of the current run | Generated |
+| `.browser-profile/<browser>/` | One profile per browser, holding your LinkedIn login | Generated |
+| `.run.json` | Start time, limits and browser of the current run | Generated |
+| `run.log` | Every event of every run, the source of the live log | Generated |
 
 Everything generated is gitignored. It contains personal data, so keep it that way.
 
 ## Setup (once)
 
-Requirements: `uv`, `node`/`npx`, and `agy` logged in to your Google account.
+Requirements: macOS, `uv`, `node`/`npx`, a Chromium-based browser (Chrome, Brave, Edge...), and `agy`
+logged in to your Google account. Nothing gets downloaded for the browser: it uses the one you have.
 
 ```bash
 uv sync                                   # rendercv
-npx playwright install chromium           # browser used by the MCP
 
-# Register the browser MCP in agy (agy only has a global MCP config)
-agy mcp add linkedin_playwright npx -- -y @playwright/mcp@latest \
-  --browser chromium --user-data-dir $PWD/.browser-profile
+# Register the browser MCP in agy, once (agy only has a global MCP config).
+# It points at `jobs.py mcp`, which starts Playwright MCP with the browser of the current run.
+agy mcp add linkedin_playwright $PWD/.venv/bin/python -- $PWD/jobs.py mcp
 
-# Log in to LinkedIn once, by hand, in that same profile. Close the window when done.
-npx playwright open -b chromium --user-data-dir .browser-profile https://www.linkedin.com/login
+# Log in to LinkedIn once per browser you want to use. Close the window when done.
+uv run jobs.py login                      # Chrome
+uv run jobs.py login --browser brave      # Brave, in its own profile
 ```
 
 Then:
@@ -60,7 +62,25 @@ Then:
 
 **Credentials:** none are stored in the project. The login lives in the browser profile as cookies,
 the same as a normal browser. If LinkedIn logs you out, or shows a captcha or security check, the agent
-stops and says so. Re-run the `playwright open` command above to log in again.
+stops and says so. Re-run `uv run jobs.py login` (with the same `--browser`) to log in again.
+
+**Why `login` and not just opening the browser:** Playwright launches the browser with `--use-mock-keychain`,
+so cookies are encrypted with a dummy key instead of the macOS keychain. `login` uses the same flag. A login
+made by opening the browser normally is unreadable to the agent, and it will see a login page.
+
+### Browsers
+
+| `--browser` | Executable |
+|---|---|
+| `chrome` (default) | `/Applications/Google Chrome.app` |
+| `brave` | `/Applications/Brave Browser.app` |
+| `edge` | `/Applications/Microsoft Edge.app` |
+| `chromium` | `/Applications/Chromium.app` |
+| any path | Any other Chromium-based browser, e.g. `--browser "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi"` |
+
+Each browser gets its own profile in `.browser-profile/<browser>/`, separate from your everyday one, so you
+can keep using your browser while the agent runs. Firefox and Safari aren't supported (Playwright can only
+drive its own builds of those).
 
 ## Running
 
@@ -75,24 +95,50 @@ Any flag overrides `search.toml` for that run only:
 
 ```bash
 uv run jobs.py run "AI engineer" --location Germany --workplace remote --max-applies 1
+uv run jobs.py run "python developer" -l "San Francisco" --browser brave --max-time 1.5 -v
 ```
 
 | `search.toml` key / flag | Meaning |
 |---|---|
-| `position` / 1st argument | Search keywords |
+| `position` / 1st argument | Search keywords. Quote multi-word values: `"AI engineer"` |
+| `location` / `-l`, `--location` | City, region or country: `-l "San Francisco"` |
+| `browser` / `-b`, `--browser` | Browser to drive, see [Browsers](#browsers). Default `chrome` |
 | `max_applies` / `--max-applies N` | Stop after N **successful** applications this run. `0` = unlimited |
+| `max_time` / `--max-time H` | Stop after H hours (e.g. `1.5`); the agent finishes the current job first, and is killed 10 min later if it doesn't stop. `0` = unlimited |
 | `max_pages` / `--max-pages N` | Result pages to go through (25 jobs each). `0` = until results run out |
-| `location`, `posted`, `experience`, `workplace`, `job_type`, `sort`, `distance`, `under_10_applicants`, `filter` | Search filters, see [docs/filters.md](docs/filters.md). A `filter` given as a flag is added to the list in the file |
+| `posted`, `experience`, `workplace`, `job_type`, `sort`, `distance`, `under_10_applicants`, `filter` | Search filters, see [docs/filters.md](docs/filters.md). A `filter` given as a flag is added to the list in the file |
 | `--dry-run` | Print the search URL and exit |
+| `-v` / `-q` | Live progress log: `-v` adds timings, URLs and render errors, `-q` shows only application results. Everything also goes to `run.log` |
 | `AGY_MODEL` env var | Model for the agent and CV tailoring. Default `gemini-3.8-flash-high` (`agy models` lists them) |
 
 A typo'd key or an invalid value in `search.toml` stops the run with an error rather than being silently ignored.
 
-Before the browser starts, `run` does a quick preflight: agy and the `linkedin_playwright` MCP are set up,
-you have logged in once (`.browser-profile/` exists), and `cv.yaml` renders. It re-renders `base_cv.pdf` if
+Before the browser starts, `run` does a quick preflight: agy and the `linkedin_playwright` MCP are set up
+(it prints the register command if not), the browser exists and you have logged in with it once, and
+`cv.yaml` renders. It re-renders `base_cv.pdf` if
 `cv.yaml` changed. If `answers.md` still has TODOs, it lists them and asks:
 `[f]` fill what your CV answers with Gemini (shows a diff, asks before saving, keeps `answers.md.bak`),
 `[c]` continue anyway, or `[q]` quit.
+
+### Live log
+
+While the agent works, `run` prints what's happening, in color:
+
+```
+22:16:32 searching "ai engineer" in San Francisco, stop after 2 applies
+22:16:32 agent started (gemini-3.8-flash-high, chrome), browsing LinkedIn... (-v for more detail)
+22:17:05 tailoring CV: ACME — AI Engineer
+22:17:29 CV ready in 24s: applications/acme-ai-engineer/CV.pdf
+22:18:40 applied: ACME — AI Engineer  [1/2 applied]
+22:19:02 skipped: Foo — ML Engineer (required: German)  [1/2 applied]
+22:25:13 agent finished (exit 0): 2 applied this run
+```
+
+Green = applied, yellow = skipped or warning, red = failed or error. `-v` adds grey debug lines (Gemini timings,
+job URLs, RenderCV errors), `-q` keeps only the application results. `tailor` and `log` are run by the agent,
+so their events go through `run.log`, which `run` follows; the file keeps every event of every run. Between
+"agent started" and the first job it's quiet: that's the agent browsing LinkedIn. The agent's own summary is
+printed when it finishes.
 
 `Ctrl+C` stops at any time. Jobs already logged are skipped on the next run, and so are jobs LinkedIn
 marks as "Applied".
@@ -150,9 +196,11 @@ To retry a job, delete its line from `applied.jsonl`.
 
 | Symptom | Fix |
 |---|---|
-| Agent says it's not logged in, or hits a captcha | Re-run the `playwright open ... /login` command and log in |
-| "Profile in use" / browser won't start | Close other Chromium windows using `.browser-profile/` |
-| Upload fails or the path is refused | Re-register the MCP with `--allow-unrestricted-file-access` added |
+| Agent says it's not logged in, or hits a captcha | Re-run `uv run jobs.py login` and log in |
+| Agent sees a login page right after `login` | You logged in by opening the browser yourself: use `uv run jobs.py login --browser <same one>` |
+| "Profile in use" / browser won't start | Close the `login` window, or any window using `.browser-profile/<browser>/` |
+| Upload fails or the path is refused | Add `"--allow-unrestricted-file-access"` to the `npx` args in `mcp()` in `jobs.py` |
+| Preflight says the MCP is missing or outdated | Run the `agy mcp remove/add` command it prints |
 | Many `skipped` entries | Add the logged questions to `answers.md` |
 | A filter doesn't apply | Set it by hand on LinkedIn, copy the param from the URL, pass it with `--filter` |
 | `CV render failed` | Check `applications/<job>/CV.yaml`, and check that `cv.yaml` itself renders |

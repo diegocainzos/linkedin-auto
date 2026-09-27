@@ -1,18 +1,26 @@
 """LinkedIn Easy Apply automation driven by agy (Gemini) + Playwright MCP, with a tailored RenderCV CV per job.
 
-  uv run jobs.py run "python developer" --location Spain --max-applies 5   # start the agent
+  uv run jobs.py login --browser brave                                    # once per browser
+  uv run jobs.py run "python developer" -l Valencia --max-applies 5 -v    # start the agent
   uv run jobs.py tailor --company X --title Y --jd jd.txt                  # called by the agent
   uv run jobs.py log --company X --title Y --url U --status applied        # called by the agent
+  jobs.py mcp                                                             # started by agy
 """
-import argparse, datetime, difflib, json, os, re, shutil, subprocess, sys, tempfile, time, tomllib
+import argparse, datetime, difflib, json, os, re, shutil, subprocess, sys, tempfile, threading, time, tomllib
 from pathlib import Path
 from urllib.parse import urlencode
 
 ROOT = Path(__file__).parent.resolve()
-BASE_CV, ANSWERS, LOG, RUN, APPS, SEARCH = (ROOT / p for p in (
-    "cv.yaml", "answers.md", "applied.jsonl", ".run.json", "applications", "search.toml"))
+BASE_CV, ANSWERS, LOG, RUN, APPS, SEARCH, EVENTS = (ROOT / p for p in (
+    "cv.yaml", "answers.md", "applied.jsonl", ".run.json", "applications", "search.toml", "run.log"))
 MODEL = os.environ.get("AGY_MODEL", "gemini-3.8-flash-high")
 MCP = "linkedin_playwright"  # registered in agy, see README
+BROWSERS = {  # macOS; any other Chromium-based browser works by passing its executable path
+    "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "brave": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "edge": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "chromium": "/Applications/Chromium.app/Contents/MacOS/Chromium",
+}
 
 
 def slug(s: str) -> str:
@@ -32,6 +40,39 @@ def logged() -> list[dict]:
 def job_url(u: str) -> str:  # canonical /jobs/view/<id>/ so the skip list matches however the agent copied it
     m = re.search(r"(?:currentJobId=|/jobs/view/(?:[^/?]*-)?)(\d+)", u)
     return f"https://www.linkedin.com/jobs/view/{m[1]}/" if m else u
+
+
+def applied_since(started: float) -> int:
+    return sum(1 for e in logged() if e["status"] == "applied" and e.get("ts", 0) >= started)
+
+
+COLORS = {"ok": 32, "warn": 33, "err": 31, "info": 36, "debug": 90}
+
+
+def say(msg: str, kind: str = "info") -> None:
+    """Append an event to run.log. `run` prints it live, even when the agent is the caller."""
+    with EVENTS.open("a") as f:
+        f.write(f"{time.strftime('%H:%M:%S')} {kind} {' | '.join(msg.strip().splitlines())}\n")
+
+
+def follow(stop: threading.Event, level: int, offset: int) -> None:
+    """Print new run.log events until `stop`. level 0 = results, 1 = + progress, 2 = + debug."""
+    shown = ("ok", "warn", "err", "info", "debug")[:3 + level]
+    color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+    buf = ""
+    with EVENTS.open("a+") as f:
+        f.seek(offset)
+        while True:
+            buf += f.readline()
+            if not buf.endswith("\n"):  # nothing new, or a half-written line
+                if stop.is_set():
+                    return
+                time.sleep(0.3)
+                continue
+            ts, kind, msg = (buf.rstrip("\n").split(" ", 2) + ["", ""])[:3]
+            buf = ""
+            if kind in shown:
+                print(f"\033[2m{ts}\033[0m \033[{COLORS[kind]}m{msg}\033[0m" if color else f"{ts} {msg}", flush=True)
 
 
 def agy(prompt: str, cwd: Path, timeout="0s") -> tuple[str, str]:
@@ -70,25 +111,35 @@ def tailor(a) -> int:
     out.mkdir(parents=True, exist_ok=True)
     yml, pdf, error = out / "CV.yaml", out / "CV.pdf", ""
     fallback = f"CV tailoring failed, upload the base CV instead:\n{ROOT / 'base_cv.pdf'}"
+    say(f"tailoring CV: {a.company} — {a.title}")
     try:
         jd = Path(a.jd).read_text()
     except OSError as e:
+        say(f"can't read the job description: {e}", "err")
         print(f"{e}\n{fallback}")
         return 1
-    for _ in range(2):  # one retry with the render error fed back
+    start = time.time()
+    for attempt in (1, 2):  # one retry with the render error fed back
+        t = time.time()
         with tempfile.TemporaryDirectory() as tmp:  # empty cwd so the model can't touch the project
             reply, err = agy(TAILOR_PROMPT.format(cv=BASE_CV.read_text(), title=a.title, company=a.company, jd=jd, error=error),
                         Path(tmp), "300s")
+        say(f"attempt {attempt}: Gemini replied in {time.time() - t:.0f}s, {len(reply)} chars (jd {len(jd)} chars)", "debug")
         fenced = re.search(r"```\w*\n(.*?)\n```", reply, re.S)  # models like to wrap YAML in prose + fences
         yml.write_text((fenced[1] if fenced else reply).strip() + "\n")
         r = render(yml, pdf)
         if r.returncode == 0 and pdf.exists():
+            say(f"CV ready in {time.time() - start:.0f}s: {pdf.relative_to(ROOT)}")
             print(pdf)
             return 0
         if not reply.strip():
+            say(f"Gemini returned nothing: {err.strip()[-300:]}", "err")
             print(f"agy returned nothing: {err.strip()[-500:]}", file=sys.stderr)
             break  # quota/auth error: a retry won't help
         error = f"\nYour previous YAML failed to render, fix it:\n{(r.stdout + r.stderr)[-3000:]}"
+        say(f"attempt {attempt}: RenderCV rejected the YAML", "warn")
+        say((r.stdout + r.stderr)[-800:], "debug")
+    say("tailoring failed, the agent will upload base_cv.pdf", "warn")
     print(error[-1500:], file=sys.stderr)
     print(fallback)  # last stdout line is always a PDF path
     return 1
@@ -99,8 +150,12 @@ def log(a) -> int:
     with LOG.open("a") as f:
         f.write("\n" * bool(torn) + json.dumps({"ts": time.time(), **{k: getattr(a, k) for k in ("company", "title", "status", "note")}, "url": job_url(a.url)}) + "\n")
     run = json.loads(RUN.read_text()) if RUN.exists() else {"started": 0, "max": 0}
-    n = sum(1 for e in logged() if e["status"] == "applied" and e.get("ts", 0) >= run["started"])
-    print(f"{n} applied this run." + (" LIMIT REACHED: stop now and summarize." if run["max"] and n >= run["max"] else ""))
+    n = applied_since(run["started"])
+    out_of_time = run.get("hours") and time.time() >= run["started"] + run["hours"] * 3600
+    say(f"{a.status}: {a.company} — {a.title}" + (f" ({a.note})" if a.note else "") + f"  [{n}/{run['max'] or '∞'} applied]",
+        {"applied": "ok", "skipped": "warn", "failed": "err"}[a.status])
+    say(job_url(a.url), "debug")
+    print(f"{n} applied this run." + (" LIMIT REACHED: stop now and summarize." if run["max"] and n >= run["max"] or out_of_time else ""))
     return 0
 
 
@@ -165,15 +220,20 @@ Change nothing else. Output ONLY the full file, no code fences.
 </cv>"""
 
 
-def preflight() -> None:
+def preflight(name: str) -> None:
     """Cheap checks before the browser starts. Exits on anything that would break the run."""
     problems = []
     if not shutil.which("agy"):
         sys.exit("preflight: agy not found on PATH")
-    if MCP not in subprocess.run(["agy", "mcp", "list"], capture_output=True, text=True).stdout:
-        problems.append(f"MCP `{MCP}` is not registered in agy (README > Setup)")
-    if not (ROOT / ".browser-profile").is_dir():
-        problems.append("no .browser-profile/: log in to LinkedIn once (README > Setup)")
+    mcps = subprocess.run(["agy", "mcp", "list"], capture_output=True, text=True).stdout.splitlines()
+    if not any(l.startswith(MCP + " ") and "jobs.py mcp" in l for l in mcps):
+        problems.append(f"MCP `{MCP}` is missing or outdated in agy. Register it with:\n"
+                        f"  agy mcp remove {MCP}; agy mcp add {MCP} {ROOT}/.venv/bin/python -- {ROOT}/jobs.py mcp")
+    exe, profile = browser(name)
+    if not Path(exe).exists():
+        problems.append(f"browser {exe} not found: pass --browser {'|'.join(BROWSERS)} or an executable path")
+    elif not profile.is_dir():
+        problems.append(f"not logged in with {name} yet: run `uv run jobs.py login --browser {name}` once")
     for f in (BASE_CV, ANSWERS):
         if not f.exists():
             problems.append(f"{f.name} is missing")
@@ -213,18 +273,59 @@ def preflight() -> None:
 
 
 def run(a) -> int:
-    RUN.write_text(json.dumps({"started": time.time(), "max": a.max_applies}))
     url = search_url(a)
     print(url)
     if a.dry_run:
         return 0
-    preflight()
+    preflight(a.browser)
+    RUN.write_text(json.dumps({"started": time.time(), "max": a.max_applies, "hours": a.max_time, "browser": a.browser}))
+    stop = threading.Event()
+    tail = threading.Thread(target=follow, args=(stop, 1 + a.verbose - a.quiet, EVENTS.stat().st_size if EVENTS.exists() else 0), daemon=True)
+    tail.start()
+    say(f"searching \"{a.position}\" in {a.location or 'anywhere'}, stop after {a.max_applies or '∞'} applies"
+        + (f" or {a.max_time:g}h" if a.max_time else ""))
+    say(url, "debug")
     pages = f"at most {a.max_pages} results pages" if a.max_pages else "all results pages until there are no more"
     prompt = (SYSTEM.format(mcp=MCP, root=ROOT) +
               f"\n\nSearch URL: {url}\nProcess {pages}.\n"
               f"Already processed job URLs: {json.dumps([e['url'] for e in logged()][-300:])}\n\n"
               f"<candidate_answers>\n{ANSWERS.read_text()}\n</candidate_answers>\n\n<cv>\n{BASE_CV.read_text()}\n</cv>")
-    return subprocess.run(["agy", "-p", prompt, "--model", MODEL, "--dangerously-skip-permissions"], cwd=ROOT).returncode
+    say(f"agent started ({MODEL}, {a.browser}), browsing LinkedIn... (-v for more detail)")
+    say(f"prompt: {len(prompt)} chars", "debug")
+    rc = 1
+    try:
+        # the soft limit is LIMIT REACHED from `log`; kill 10 min later in case the agent never logs again
+        rc = subprocess.run(["agy", "-p", prompt, "--model", MODEL, "--dangerously-skip-permissions"], cwd=ROOT,
+                            timeout=a.max_time * 3600 + 600 if a.max_time else None).returncode
+    except subprocess.TimeoutExpired:
+        say(f"--max-time {a.max_time:g}h passed and the agent didn't stop: killed it", "warn")
+    finally:  # also on Ctrl+C
+        n = applied_since(json.loads(RUN.read_text())["started"])
+        say(f"agent finished (exit {rc}): {n} applied this run", "ok" if rc == 0 else "err")
+        stop.set()
+        tail.join(timeout=2)
+    return rc
+
+
+def browser(name: str) -> tuple[str, Path]:
+    """Executable + its own profile dir: a profile isn't portable between browsers."""
+    return BROWSERS.get(name, name), ROOT / ".browser-profile" / slug(Path(name).stem)
+
+
+def login(a) -> int:
+    exe, profile = browser(a.browser)
+    if not Path(exe).exists():
+        sys.exit(f"{exe} not found: pass one of {', '.join(BROWSERS)} or an executable path")
+    print(f"Log in to LinkedIn, then close the {a.browser} window. Profile: {profile.relative_to(ROOT)}")
+    # --use-mock-keychain like Playwright: cookies saved with the real macOS keychain are unreadable to the agent
+    return subprocess.run([exe, "--use-mock-keychain", "--no-first-run", f"--user-data-dir={profile}",
+                           "https://www.linkedin.com/login"], capture_output=True).returncode
+
+
+def mcp(a) -> int:
+    """agy starts the browser MCP through this (README > Setup), so each run can pick its browser."""
+    exe, profile = browser(json.loads(RUN.read_text()).get("browser", "chrome") if RUN.exists() else "chrome")
+    os.execvp("npx", ["npx", "-y", "@playwright/mcp@latest", "--executable-path", exe, "--user-data-dir", str(profile)])
 
 
 def choices(codes):
@@ -246,9 +347,11 @@ def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
-    r.add_argument("position", nargs="?")
-    r.add_argument("--location", default="")
+    r.add_argument("position", nargs="?", help="search keywords, e.g. \"python developer\" (default: search.toml)")
+    r.add_argument("-l", "--location", default="", help="city, region or country, e.g. Valencia (default: search.toml)")
     r.add_argument("--max-applies", type=int, default=10, help="0 = unlimited")
+    r.add_argument("--max-time", type=float, default=0, metavar="HOURS",
+                   help="stop after this many hours, finishing the current job, e.g. 1.5. 0 = unlimited")
     r.add_argument("--max-pages", type=int, default=0, help="0 = unlimited")
     for name, (_, codes) in FILTERS.items():
         r.add_argument(f"--{name.replace('_', '-')}", type=choices(codes), help=f"comma list of: {', '.join(codes)}")
@@ -256,7 +359,10 @@ def main():
     r.add_argument("--under-10-applicants", action="store_true")
     r.add_argument("--filter", action="append", default=[], type=key_value, metavar="KEY=VALUE",
                    help="raw LinkedIn URL param, repeatable, e.g. f_C=1441 or geoId=105646813")
+    r.add_argument("-b", "--browser", default="chrome", help=f"{', '.join(BROWSERS)} or an executable path")
     r.add_argument("--dry-run", action="store_true", help="print the search URL and exit")
+    r.add_argument("-v", "--verbose", action="store_true", help="also show debug events (timings, URLs, render errors)")
+    r.add_argument("-q", "--quiet", action="store_true", help="only show application results")
     if SEARCH.exists():  # search.toml = defaults, CLI flags override (filter lists are added to)
         defaults = tomllib.loads(SEARCH.read_text())
         if unknown := set(defaults) - {x.dest for x in r._actions}:
@@ -268,7 +374,7 @@ def main():
             try:
                 ok = (isinstance(v, bool) if x.nargs == 0 else
                       isinstance(v, list) and all(key_value(i) for i in v) if x.dest == "filter" else
-                      isinstance(v, (int, str)) and not isinstance(v, bool))
+                      isinstance(v, (int, float, str)) and not isinstance(v, bool))
             except argparse.ArgumentTypeError:
                 ok = False
             if not ok:
@@ -283,10 +389,15 @@ def main():
         l.add_argument(f"--{k}", required=True)
     l.add_argument("--status", required=True, type=lambda s: s.strip().lower(), choices=("applied", "skipped", "failed"))
     l.add_argument("--note", default="")
+    lg = sub.add_parser("login", help="log in to LinkedIn in the agent's browser profile")
+    lg.add_argument("-b", "--browser", default="chrome", help=f"{', '.join(BROWSERS)} or an executable path")
+    if SEARCH.exists():  # same default browser as `run`
+        lg.set_defaults(browser=tomllib.loads(SEARCH.read_text()).get("browser", "chrome"))
+    sub.add_parser("mcp", help="start the browser MCP (agy runs this, see README > Setup)")
     a = p.parse_args()
     if a.cmd == "run" and not a.position:
         p.error("no position: pass one or set `position` in search.toml")
-    sys.exit({"run": run, "tailor": tailor, "log": log}[a.cmd](a))
+    sys.exit({"run": run, "tailor": tailor, "log": log, "login": login, "mcp": mcp}[a.cmd](a))
 
 
 if __name__ == "__main__":
