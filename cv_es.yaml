@@ -1,0 +1,89 @@
+
+cv:
+  name: Diego Caínzos
+  location: Valencia, España
+  email: dgarciacainzos@gmail.com
+  phone: +34-664-410-502
+  website: https://diegocainzos.cv
+  social_networks:
+    - network: LinkedIn
+      username: diegocainzos
+    - network: GitHub
+      username: diegocainzos
+  sections:
+    Perfil profesional:
+      - >-
+        Ingeniero de IA especializado en crear soluciones de IA con un perfil mixto:
+        desarrollo de software, Data Science y despliegue de sistemas. Experiencia con
+        Python, Machine Learning, Docker y Linux. Explora mis proyectos, demos en vivo y
+        arquitecturas de IA desplegadas en [diegocainzos.cv](https://diegocainzos.cv).
+    Experiencia:
+      - company: Navertia
+        position: Ingeniero de IA
+        start_date: 2026-04
+        end_date: present
+        location: Valencia, España · Híbrido
+        highlights:
+          - >-
+            Diseñé e implementé de extremo a extremo un agente telefónico bidireccional
+            para atención al cliente, desplegado en producción para aliviar la saturación
+            de líneas mediante Pipecat, Deepgram, ElevenLabs y Gemini API.
+          - >-
+            Desplegué infraestructura local con vLLM y Docker sobre dos NVIDIA RTX 5090
+            para servir MiniMax M3, Gemma 4 y DeepSeek V4, sistemas RAG y portales
+            privados Open WebUI.
+          - >-
+            Desarrollo un pipeline que procesa facturas recibidas por correo mediante OCR
+            local, extrae sus campos contables y prepara su integración con Microsoft
+            Dynamics 365 Business Central.
+      - company: Traffic and Road Safety Institute — Universitat de València
+        position: Becario de Análisis de Datos
+        start_date: 2023-10
+        end_date: 2024-06
+        location: Valencia, España
+        highlights:
+          - >-
+            Procesé, limpié y analicé datos con Python y elaboré documentación e informes
+            para proyectos institucionales de movilidad y seguridad vial.
+    Proyectos:
+      - name: El Sesgo del Fútbol — Pipeline NLP end-to-end
+        date: 2024
+        summary: >-
+          [GitHub](https://github.com/diegocainzos/ElSesgoDelFutbol) ·
+          [Aplicación](https://elsesgodelfutbol.diegocainzos.cv)
+        highlights:
+          - >-
+            Construí y desplegué con Python, AWS, Docker y Streamlit un pipeline para
+            ingerir, transformar y analizar mediante NLP texto de prensa deportiva.
+    Formación:
+      - institution: Universidad Nacional de Educación a Distancia (UNED)
+        area: Procesamiento del Lenguaje Natural
+        degree: Máster
+        start_date: 2025-10
+        end_date: present
+        location: Online
+        highlights:
+          - Formación académica completada; TFM pendiente de entrega.
+          - >-
+            Transformers con Hugging Face, arquitecturas neuronales con PyTorch y
+            aprendizaje automático clásico con scikit-learn, incluidos árboles y SVM.
+      - institution: Universidade da Coruña
+        area: Ingeniería Informática — Datos y Software
+        degree: Grado
+        start_date: 2020-09
+        end_date: 2024-06
+        location: A Coruña, España
+        highlights:
+          - >-
+            Perfil mixto en datos y desarrollo de software. TFG: [clasificación de géneros
+            musicales](https://github.com/diegocainzos/music-genre-classification-tfg) · [PDF](https://github.com/diegocainzos/music-genre-classification-tfg/blob/main/tfg_diego_garcia.pdf).
+    Competencias:
+      - label: IA y Machine Learning
+        details: PyTorch, Hugging Face, scikit-learn, NLP, RAG, vLLM, LangGraph, LangChain
+      - label: Ingeniería y plataformas
+        details: Python, Docker, PostgreSQL, REST, Linux, Git, AWS, Open WebUI
+      - label: Datos y analítica
+        details: SQL, pandas, Azure, Streamlit, Power BI
+    Idiomas:
+      - label: Niveles
+        details: Español nativo · Inglés C1 · Portugués B2 · Italiano A2

@@ -1,0 +1,8 @@
+.browser-profile/
+applications/
+applied.jsonl
+.venv/
+__pycache__/
+.run.json
+answers.md.bak
+rendercv_output/

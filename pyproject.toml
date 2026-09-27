@@ -1,0 +1,7 @@
+[project]
+name = "linkedin-auto"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "rendercv[full]>=2.8",
+]

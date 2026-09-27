@@ -1,0 +1,90 @@
+
+cv:
+  name: Diego Caínzos
+  location: Valencia, Spain
+  email: dgarciacainzos@gmail.com
+  phone: +34-664-410-502
+  website: https://diegocainzos.cv
+  social_networks:
+    - network: LinkedIn
+      username: diegocainzos
+    - network: GitHub
+      username: diegocainzos
+  sections:
+    Professional Summary:
+      - >-
+        AI Engineer specializing in building AI solutions with a hybrid profile spanning
+        software development, Data Science, and systems deployment. Experienced with
+        Python, Machine Learning, Docker, and Linux. Explore my projects, live demos, and
+        deployed AI architectures at [diegocainzos.cv](https://diegocainzos.cv).
+    Experience:
+      - company: Navertia
+        position: AI Engineer
+        start_date: 2026-04
+        end_date: present
+        location: Valencia, Spain · Hybrid
+        highlights:
+          - >-
+            Designed and implemented an end-to-end bidirectional customer-service voice
+            agent, deployed to production to address saturated phone lines using Pipecat,
+            Deepgram, ElevenLabs, and the Gemini API.
+          - >-
+            Deployed local infrastructure with vLLM and Docker on two NVIDIA RTX 5090
+            GPUs to serve MiniMax M3, Gemma 4, and DeepSeek V4, RAG systems, and private
+            Open WebUI portals.
+          - >-
+            Developing a pipeline that processes emailed invoices with locally served OCR,
+            extracts accounting fields, and prepares integration with Microsoft Dynamics
+            365 Business Central.
+      - company: Traffic and Road Safety Institute — Universitat de València
+        position: Data Analyst Intern
+        start_date: 2023-10
+        end_date: 2024-06
+        location: Valencia, Spain
+        highlights:
+          - >-
+            Processed, cleaned, and analyzed data with Python and prepared documentation
+            and reports for institutional mobility and road-safety projects.
+    Projects:
+      - name: Football Bias — End-to-End NLP Pipeline
+        date: 2024
+        summary: >-
+          [GitHub](https://github.com/diegocainzos/ElSesgoDelFutbol) ·
+          [Live application](https://elsesgodelfutbol.diegocainzos.cv)
+        highlights:
+          - >-
+            Built and deployed with Python, AWS, Docker, and Streamlit a pipeline to
+            ingest, transform, and analyze sports-news text using NLP.
+    Education:
+      - institution: Universidad Nacional de Educación a Distancia (UNED)
+        area: Natural Language Processing
+        degree: MS
+        start_date: 2025-10
+        end_date: present
+        location: Online
+        highlights:
+          - Coursework completed; master's thesis pending submission.
+          - >-
+            Transformers with Hugging Face, neural-network architectures with PyTorch,
+            and classical machine learning with scikit-learn, including trees and SVMs.
+      - institution: Universidade da Coruña
+        area: Computer Science — Data and Software
+        degree: BS
+        start_date: 2020-09
+        end_date: 2024-06
+        location: A Coruña, Spain
+        highlights:
+          - >-
+            Hybrid focus on data and software development. Thesis: [music genre
+            classification](https://github.com/diegocainzos/music-genre-classification-tfg) · [PDF](https://github.com/diegocainzos/music-genre-classification-tfg/blob/main/tfg_diego_garcia.pdf).
+    Skills:
+      - label: AI and Machine Learning
+        details: PyTorch, Hugging Face, scikit-learn, NLP, RAG, vLLM, LangGraph, LangChain
+      - label: Engineering and platforms
+        details: Python, Docker, PostgreSQL, REST, Linux, Git, AWS, Open WebUI
+      - label: Data and analytics
+        details: SQL, pandas, Azure, Streamlit, Power BI
+    Languages:
+      - label: Proficiency
+        details: Native Spanish · C1 English · B2 Portuguese · A2 Italian
+

@@ -1,0 +1,17 @@
+# Default search for `uv run jobs.py run`. Any CLI flag overrides the value here for that run.
+# Every key and value is documented in docs/filters.md. Comment a line out to disable that filter.
+
+position = "python developer"      # LinkedIn search keywords
+location = "Spain"                 # country, city, region or "European Union"
+
+max_applies = 10                   # stop after N successful applications per run, 0 = unlimited
+max_pages = 3                      # result pages of 25 jobs, 0 = until results run out
+
+posted = "week"                    # 24h | week | month
+experience = "internship,entry,associate"   # internship,entry,associate,mid-senior,director,executive
+# workplace = "remote,hybrid"      # onsite,remote,hybrid
+job_type = "full-time"             # full-time,part-time,contract,temporary,internship,volunteer,other
+sort = "recent"                    # recent | relevant
+# distance = "25"                  # miles around location
+# under_10_applicants = true
+# filter = ["geoId=105646813"]     # raw LinkedIn URL params
