@@ -12,6 +12,8 @@ LinkedIn with your filters, then for each job it:
 
 It stops when it reaches `--max-applies`, `--max-time` or `--max-pages`, or when the results run out.
 
+Quick help: `uv run jobs.py -h` (see [Command reference](#command-reference)).
+
 ```
 jobs.py run ──► agy -p (Gemini) ──► linkedin_playwright MCP = jobs.py mcp ──► your browser (.browser-profile/<browser>/)
                   │
@@ -142,6 +144,116 @@ printed when it finishes.
 
 `Ctrl+C` stops at any time. Jobs already logged are skipped on the next run, and so are jobs LinkedIn
 marks as "Applied".
+
+## Command reference
+
+Everything is in `-h`: `uv run jobs.py -h` for the overview, `uv run jobs.py <command> -h` for each command.
+The `[now: ...]` values come from `search.toml`, so yours may differ from the ones below.
+
+<details open><summary><code>uv run jobs.py -h</code></summary>
+
+```
+usage: jobs.py [-h] command ...
+
+Applies to LinkedIn Easy Apply jobs for you, uploading a CV tailored to each job.
+An agy (Gemini) agent drives your browser; answers come from answers.md, the CV from cv.yaml.
+
+positional arguments:
+  command
+    run       search LinkedIn and apply (the main command)
+    login     log in to LinkedIn in the browser the agent uses (once per browser)
+    tailor    write a CV for one job (the agent calls this)
+    log       record a job's result (the agent calls this)
+    mcp       start the browser MCP (agy runs this, see README > Setup)
+
+options:
+  -h, --help  show this help message and exit
+
+first time:
+  agy mcp add linkedin_playwright $PWD/.venv/bin/python -- $PWD/jobs.py mcp
+  uv run jobs.py login                   log in to LinkedIn (Chrome); -b brave for Brave
+
+every day:
+  uv run jobs.py run --dry-run           preview the search from search.toml
+  uv run jobs.py run                     apply with search.toml
+  uv run jobs.py run "ai engineer" -l "San Francisco" -b brave --max-time 1.5 -v
+
+more:  uv run jobs.py run -h    ·    README.md    ·    docs/filters.md
+```
+</details>
+
+<details><summary><code>uv run jobs.py run -h</code></summary>
+
+```
+usage: jobs.py run [-h] [-l LOCATION] [--posted X[,Y]] [--experience X[,Y]] [--workplace X[,Y]]
+                   [--job-type X[,Y]] [--sort X] [--distance MILES] [--under-10-applicants]
+                   [--filter KEY=VALUE] [--max-applies N] [--max-time HOURS] [--max-pages N] [-b BROWSER]
+                   [--dry-run] [-v] [-q]
+                   [position]
+
+Search LinkedIn with Easy Apply only and apply to each job with a tailored CV.
+
+options:
+  -h, --help            show this help message and exit
+
+search:
+  position              search keywords; quote several words: "ai engineer" [now: python developer]
+  -l, --location LOCATION
+                        city, region or country: Valencia, "San Francisco" [now: Valencia]
+  --posted X[,Y]        posted: 24h, week, month [now: week]
+  --experience X[,Y]    experience: internship, entry, associate, mid-senior, director, executive [now:
+                        internship,entry,associate]
+  --workplace X[,Y]     workplace: onsite, remote, hybrid [now: none]
+  --job-type X[,Y]      job type: full-time, part-time, contract, temporary, internship, volunteer, other
+                        [now: full-time]
+  --sort X              sort: recent, relevant [now: recent]
+  --distance MILES      radius around --location: 10, 25, 50, 100 [now: none]
+  --under-10-applicants
+                        only jobs with fewer than 10 applicants
+  --filter KEY=VALUE    raw LinkedIn URL param, repeatable: f_C=1441, geoId=105646813 (docs/filters.md)
+                        [now: none]
+
+limits (0 = unlimited):
+  --max-applies N       stop after N successful applications [now: 10]
+  --max-time HOURS      stop after HOURS (e.g. 1.5), finishing the current job first [now: 0]
+  --max-pages N         result pages to go through, 25 jobs each [now: 3]
+
+browser and output:
+  -b, --browser BROWSER
+                        chrome, brave, edge, chromium or the path of any Chromium-based browser [now:
+                        chrome]
+  --dry-run             print the search URL and exit, no browser
+  -v, --verbose         live log + debug: Gemini timings, job URLs, render errors
+  -q, --quiet           live log with application results only
+
+Every option's default comes from search.toml ([now: ...] shows it); a flag overrides it for this run.
+Stops at whichever comes first: --max-applies, --max-time, --max-pages, or no more results.
+Ctrl+C stops at any time; processed jobs are skipped next run (applied.jsonl).
+
+examples:
+  uv run jobs.py run "python developer" -l Valencia
+  uv run jobs.py run "ml engineer" -l "European Union" --workplace remote --posted 24h
+  uv run jobs.py run "data scientist" -l Madrid --max-applies 0 --max-time 2 -q
+  uv run jobs.py run "backend" -l Berlin --filter f_C=1441 --dry-run
+```
+</details>
+
+<details><summary><code>uv run jobs.py login -h</code></summary>
+
+```
+usage: jobs.py login [-h] [-b BROWSER]
+
+Opens the browser on the agent's own profile (.browser-profile/<browser>/). Log in to LinkedIn and close the
+window. Use this, not your normal browser: the agent can't read a login made there (macOS keychain).
+
+options:
+  -h, --help            show this help message and exit
+  -b, --browser BROWSER
+                        chrome, brave, edge, chromium or an executable path [now: chrome]
+```
+</details>
+
+`tailor`, `log` and `mcp` are called by the agent and agy, not by you; their `-h` says what they do.
 
 ## How it behaves
 

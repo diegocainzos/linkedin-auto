@@ -343,26 +343,60 @@ def key_value(v):
     return v
 
 
+HELP = """Applies to LinkedIn Easy Apply jobs for you, uploading a CV tailored to each job.
+An agy (Gemini) agent drives your browser; answers come from answers.md, the CV from cv.yaml."""
+
+HELP_EPILOG = f"""first time:
+  agy mcp add {MCP} $PWD/.venv/bin/python -- $PWD/jobs.py mcp
+  uv run jobs.py login                   log in to LinkedIn (Chrome); -b brave for Brave
+
+every day:
+  uv run jobs.py run --dry-run           preview the search from search.toml
+  uv run jobs.py run                     apply with search.toml
+  uv run jobs.py run "ai engineer" -l "San Francisco" -b brave --max-time 1.5 -v
+
+more:  uv run jobs.py run -h    ·    README.md    ·    docs/filters.md"""
+
+RUN_EPILOG = """Every option's default comes from search.toml ([now: ...] shows it); a flag overrides it for this run.
+Stops at whichever comes first: --max-applies, --max-time, --max-pages, or no more results.
+Ctrl+C stops at any time; processed jobs are skipped next run (applied.jsonl).
+
+examples:
+  uv run jobs.py run "python developer" -l Valencia
+  uv run jobs.py run "ml engineer" -l "European Union" --workplace remote --posted 24h
+  uv run jobs.py run "data scientist" -l Madrid --max-applies 0 --max-time 2 -q
+  uv run jobs.py run "backend" -l Berlin --filter f_C=1441 --dry-run"""
+
+
 def main():
-    p = argparse.ArgumentParser()
-    sub = p.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("run")
-    r.add_argument("position", nargs="?", help="search keywords, e.g. \"python developer\" (default: search.toml)")
-    r.add_argument("-l", "--location", default="", help="city, region or country, e.g. Valencia (default: search.toml)")
-    r.add_argument("--max-applies", type=int, default=10, help="0 = unlimited")
-    r.add_argument("--max-time", type=float, default=0, metavar="HOURS",
-                   help="stop after this many hours, finishing the current job, e.g. 1.5. 0 = unlimited")
-    r.add_argument("--max-pages", type=int, default=0, help="0 = unlimited")
+    fmt = argparse.RawDescriptionHelpFormatter
+    p = argparse.ArgumentParser(prog="jobs.py", description=HELP, epilog=HELP_EPILOG, formatter_class=fmt)
+    sub = p.add_subparsers(dest="cmd", required=True, metavar="command")
+    r = sub.add_parser("run", help="search LinkedIn and apply (the main command)", formatter_class=fmt,
+                       description="Search LinkedIn with Easy Apply only and apply to each job with a tailored CV.",
+                       epilog=RUN_EPILOG)
+    now = " [now: %(default)s]"
+    g = r.add_argument_group("search")
+    g.add_argument("position", nargs="?", help="search keywords; quote several words: \"ai engineer\"" + now)
+    g.add_argument("-l", "--location", default="", help="city, region or country: Valencia, \"San Francisco\"" + now)
     for name, (_, codes) in FILTERS.items():
-        r.add_argument(f"--{name.replace('_', '-')}", type=choices(codes), help=f"comma list of: {', '.join(codes)}")
-    r.add_argument("--distance", help="radius in miles around --location, e.g. 10, 25, 50, 100")
-    r.add_argument("--under-10-applicants", action="store_true")
-    r.add_argument("--filter", action="append", default=[], type=key_value, metavar="KEY=VALUE",
-                   help="raw LinkedIn URL param, repeatable, e.g. f_C=1441 or geoId=105646813")
-    r.add_argument("-b", "--browser", default="chrome", help=f"{', '.join(BROWSERS)} or an executable path")
-    r.add_argument("--dry-run", action="store_true", help="print the search URL and exit")
-    r.add_argument("-v", "--verbose", action="store_true", help="also show debug events (timings, URLs, render errors)")
-    r.add_argument("-q", "--quiet", action="store_true", help="only show application results")
+        g.add_argument(f"--{name.replace('_', '-')}", type=choices(codes), metavar="X" if name == "sort" else "X[,Y]",
+                       help=f"{name.replace('_', ' ')}: {', '.join(codes)}" + now)
+    g.add_argument("--distance", metavar="MILES", help="radius around --location: 10, 25, 50, 100" + now)
+    g.add_argument("--under-10-applicants", action="store_true", help="only jobs with fewer than 10 applicants")
+    g.add_argument("--filter", action="append", default=[], type=key_value, metavar="KEY=VALUE",
+                   help="raw LinkedIn URL param, repeatable: f_C=1441, geoId=105646813 (docs/filters.md)" + now)
+    g = r.add_argument_group("limits (0 = unlimited)")
+    g.add_argument("--max-applies", type=int, default=10, metavar="N", help="stop after N successful applications" + now)
+    g.add_argument("--max-time", type=float, default=0, metavar="HOURS",
+                   help="stop after HOURS (e.g. 1.5), finishing the current job first" + now)
+    g.add_argument("--max-pages", type=int, default=0, metavar="N", help="result pages to go through, 25 jobs each" + now)
+    g = r.add_argument_group("browser and output")
+    g.add_argument("-b", "--browser", default="chrome",
+                   help=f"{', '.join(BROWSERS)} or the path of any Chromium-based browser" + now)
+    g.add_argument("--dry-run", action="store_true", help="print the search URL and exit, no browser")
+    g.add_argument("-v", "--verbose", action="store_true", help="live log + debug: Gemini timings, job URLs, render errors")
+    g.add_argument("-q", "--quiet", action="store_true", help="live log with application results only")
     if SEARCH.exists():  # search.toml = defaults, CLI flags override (filter lists are added to)
         defaults = tomllib.loads(SEARCH.read_text())
         if unknown := set(defaults) - {x.dest for x in r._actions}:
@@ -380,20 +414,32 @@ def main():
             if not ok:
                 sys.exit(f"search.toml: bad value for {x.dest}: {v!r}")
         r.set_defaults(**defaults)
-    t = sub.add_parser("tailor")
+    lg = sub.add_parser("login", help="log in to LinkedIn in the browser the agent uses (once per browser)",
+                        description="Opens the browser on the agent's own profile (.browser-profile/<browser>/). "
+                                    "Log in to LinkedIn and close the window. Use this, not your normal browser: "
+                                    "the agent can't read a login made there (macOS keychain).")
+    lg.add_argument("-b", "--browser", default="chrome",
+                    help=f"{', '.join(BROWSERS)} or an executable path" + now)
+    if SEARCH.exists():  # same default browser as `run`
+        lg.set_defaults(browser=tomllib.loads(SEARCH.read_text()).get("browser", "chrome"))
+    for x in r._actions + lg._actions:  # fill [now: ...] with readable values
+        if x.help and now in x.help:
+            v = ", ".join(x.default) if isinstance(x.default, list) else x.default
+            x.help = x.help.replace(now, f" [now: {v if v not in (None, '') else 'none'}]".replace("%", "%%"))
+    t = sub.add_parser("tailor", help="write a CV for one job (the agent calls this)",
+                       description="Tailors cv.yaml to a job description with Gemini and renders "
+                                   "applications/<company-title>/CV.pdf. The last line printed is the PDF to upload.")
     t.add_argument("--company", required=True)
     t.add_argument("--title", required=True)
-    t.add_argument("--jd", required=True, help="file with the job description")
-    l = sub.add_parser("log")
+    t.add_argument("--jd", required=True, metavar="FILE", help="text file with the job description")
+    l = sub.add_parser("log", help="record a job's result (the agent calls this)",
+                       description="Appends to applied.jsonl and prints LIMIT REACHED when the run must stop.")
     for k in ("company", "title", "url"):
         l.add_argument(f"--{k}", required=True)
     l.add_argument("--status", required=True, type=lambda s: s.strip().lower(), choices=("applied", "skipped", "failed"))
-    l.add_argument("--note", default="")
-    lg = sub.add_parser("login", help="log in to LinkedIn in the agent's browser profile")
-    lg.add_argument("-b", "--browser", default="chrome", help=f"{', '.join(BROWSERS)} or an executable path")
-    if SEARCH.exists():  # same default browser as `run`
-        lg.set_defaults(browser=tomllib.loads(SEARCH.read_text()).get("browser", "chrome"))
-    sub.add_parser("mcp", help="start the browser MCP (agy runs this, see README > Setup)")
+    l.add_argument("--note", default="", help="why, e.g. the question that blocked it")
+    sub.add_parser("mcp", help="start the browser MCP (agy runs this, see README > Setup)",
+                   description="Starts Playwright MCP with the browser of the current run (.run.json).")
     a = p.parse_args()
     if a.cmd == "run" and not a.position:
         p.error("no position: pass one or set `position` in search.toml")
