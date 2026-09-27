@@ -33,7 +33,7 @@ How to fill:
 - Authorized to work in the US: TODO
 - Require visa sponsorship now or in the future for EU jobs: No
 - Require visa sponsorship for UK / US jobs: TODO
-- Willing to relocate: Yes (Berlin / EU)
+- Willing to relocate: Yes (Berlin / EU) (confirmed)
 - Countries or cities you will NOT relocate to: TODO
 - Comfortable working on-site / hybrid / remote: TODO (e.g. "all three")
 - Max on-site days per week you accept: TODO
@@ -56,19 +56,19 @@ How to fill:
 - Is the salary negotiable: TODO
 
 ## Experience (years, integers)
-- Total professional experience: 1 (cv.yaml: AI Engineer at Navertia since 2026-04 + 8-month Data Analyst internship 2023-10 to 2024-06)
-- Software development: 1
-- Python: 1
-- Machine learning / AI: 1
-- LLMs / generative AI: 0 (Navertia since 2026-04; answer 1 if the form means "at least some")
-- LangChain / LangGraph: 0
-- PyTorch: 0
+- Total professional experience: 2
+- Software development: 2
+- Python: 2
+- Machine learning / AI: 2
+- LLMs / generative AI: 2
+- LangChain / LangGraph: 2
+- PyTorch: 2
 - Django: 0 (not in cv.yaml)
-- SQL: 1
-- Docker: 0
-- Git: 1
-- Linux / Bash: 0
-- System administration / virtualization: 0
+- SQL: 2
+- Docker: 2
+- Git: 2
+- Linux / Bash: 2
+- System administration / virtualization: 2
 - Banking / fintech industry: 0
 - Team lead / management: 0
 - Add more lines for any tool that shows up often in questions: TODO
