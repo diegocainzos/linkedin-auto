@@ -311,9 +311,15 @@ already logged or marked "Applied". There's no fit scoring: narrow the search wi
 **CV tailoring** (`jobs.py tailor`). The agent (a text-only call, no tools) gets your `cv.yaml` and the job description and returns a new
 YAML file. The rules it's given:
 
-- Truth first: it may reorder, reword, emphasize or drop content, but never invent employers, dates,
-  titles, technologies, metrics or credentials.
-- It mirrors the job's keywords only where your CV supports them.
+- It picks the job's 5-10 key keywords. Those your CV supports go first and loud, in the job's own wording:
+  a summary rewritten for the role, skills reordered, **bold** in the bullets that prove them, the relevant
+  bullets expanded and the rest cut. An AI/LLM job leads with your LLM, agent, RAG and voice-AI work; a
+  LangChain + AWS job puts every LangChain and AWS fact up front in bold.
+- Keywords your CV doesn't support never appear, not even as "familiar with": a Java job gets no Java, it
+  gets your closest real strengths (backend, APIs, Python) instead.
+- Generous wording, no invented facts: no new employers, dates, titles, tools, metrics, projects or
+  credentials, no invented scale ("enterprise", "scalable", "proven"), and a tool that's only in your Skills
+  isn't claimed for a job or project that doesn't mention it.
 - Identity, `design`, `locale` and `settings` stay unchanged. The CV must fit on one page.
 
 If RenderCV rejects the YAML, the error goes back to the agent for one retry. If that fails too, the agent

@@ -107,9 +107,25 @@ def ask(prompt: str, cwd: Path, agent: str, model: str) -> tuple[str, str]:
 
 
 TAILOR_PROMPT = """Do not use any tools. Reply with text only.
-You tailor a RenderCV v2 YAML CV to a job description.
-- Truth first: never invent employers, dates, titles, technologies, metrics or credentials. Only reorder, reword, emphasize or drop what is already in the base CV.
-- Mirror the job's keywords only where the base CV truthfully supports them (ATS).
+You tailor a RenderCV v2 YAML CV to a job description, to pass ATS keyword filters and impress a recruiter in 10 seconds.
+
+First, silently pick the 5-10 most important keywords of the job (stack, tools, domain, seniority signals).
+Then sell hard the parts of the base CV that match them:
+- Keywords the base CV truthfully supports: use the job's exact wording, put them first and make them loud:
+  in the summary's first sentence, first in the skills, and in **bold** in the bullets that prove them.
+- Rewrite the Professional Summary for this job: open with the job's role and its top matching keywords.
+- Reorder sections, entries, bullets and skills so the most relevant come first. Expand the relevant bullets with
+  more concrete detail that the base CV already implies (what was built, with what, for whom); shorten or drop the rest.
+  E.g. an AI/LLM job leads with LLMs, agents, RAG, the voice agent, local model serving and AI projects;
+  a job asking for LangChain and AWS puts every LangChain and AWS fact up front and in bold.
+- Keywords the base CV does NOT support (e.g. Java for someone who never used Java): never write them anywhere,
+  not in skills, summary or bullets, not as "familiar with" or "learning". Instead emphasize the closest true
+  strengths (e.g. backend development, OOP, APIs in Python).
+- Embellish generously in wording, never in facts: never invent employers, dates, titles, technologies, tools,
+  metrics, projects or credentials, and never raise a level of expertise the base CV doesn't state.
+  No invented scale, clients or results either ("enterprise", "high-throughput", "scalable", "proven", "led",
+  user counts) unless the base CV says so. A tool listed only under Skills stays a skill: don't claim it
+  was used in a job or project that doesn't mention it.
 - Keep `cv` identity/contact data and the `design`, `locale`, `settings` blocks unchanged.
 - Must fit on ONE page: cut the least relevant content. One entry type per section, valid RenderCV schema.
 Output ONLY the full YAML, no code fences, no commentary.
