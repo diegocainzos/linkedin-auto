@@ -2,39 +2,41 @@
 
 Applies to LinkedIn **Easy Apply** jobs automatically, with a CV tailored to each job.
 
-An agy agent (Gemini 3.8 Flash High) drives your own browser (Chrome by default; Brave, Edge or any Chromium-based one) through Playwright MCP. It searches
+An agent CLI (`agy` with Gemini 3.8 Flash High by default; also `claude`, `codex` or `pi`, see [Agents](#agents)) drives your own browser (Chrome by default; Brave, Edge or any Chromium-based one) through Playwright MCP. It searches
 LinkedIn with your filters, then for each job it:
 
 1. reads the job description,
-2. generates a tailored CV from your `cv.yaml` (a separate Gemini call, rendered with RenderCV),
+2. generates a tailored CV from your `cv.yaml` (a separate text-only call to the same agent, rendered with RenderCV),
 3. opens Easy Apply, uploads that PDF, fills the form from `answers.md`, submits,
-4. logs the result in `applied.jsonl`.
+4. logs the result in `applied.jsonl`, and reports any problem it hits to `issues.log`.
 
 It stops when it reaches `--max-applies`, `--max-time` or `--max-pages`, or when the results run out.
 
 Quick help: `uv run jobs.py -h` (see [Command reference](#command-reference)).
 
 ```
-jobs.py run ──► agy -p (Gemini) ──► linkedin_playwright MCP = jobs.py mcp ──► your browser (.browser-profile/<browser>/)
+jobs.py run ──► agent CLI ──► linkedin_playwright MCP = jobs.py mcp ──► your browser (.browser-profile/<browser>/)
                   │
-                  ├─► uv run jobs.py tailor ──► agy -p (Gemini) ──► cv yaml ──► rendercv ──► CV.pdf
-                  └─► uv run jobs.py log ──► applied.jsonl  (prints LIMIT REACHED to stop)
+                  ├─► uv run jobs.py tailor ──► agent CLI, text only ──► cv yaml ──► rendercv ──► CV.pdf
+                  ├─► uv run jobs.py log ──► applied.jsonl  (prints LIMIT REACHED to stop)
+                  └─► uv run jobs.py issue ──► issues.log
 ```
 
 ## Files
 
 | Path | What it is | You edit it? |
 |---|---|---|
-| `jobs.py` | Everything: the `run`, `login`, `tailor`, `log` and `mcp` commands, and the agent prompt | Rarely |
+| `jobs.py` | Everything: the `run`, `login`, `tailor`, `log`, `issue` and `mcp` commands, and the agent prompt | Rarely |
 | `cv.yaml` | Your base CV in RenderCV format. Its `design`, `locale` and `settings` are kept in every tailored CV | **Yes** |
 | `answers.md` | Answers to Easy Apply questions. The agent only uses this file and `cv.yaml` | **Yes** |
-| `search.toml` | Default search: position, location, limits, filters | **Yes** |
+| `search.toml` | Default search: position, location, limits, filters, agent, browser | **Yes** |
 | `base_cv.pdf` | Untailored CV, uploaded when tailoring fails. Regenerate it after editing `cv.yaml` | No |
 | `docs/filters.md` | Every search filter and its LinkedIn URL code | — |
 | `applications/<company-title>/` | Per job: `CV.yaml` and `CV.pdf` | Generated |
 | `applied.jsonl` | One line per processed job: `ts, company, title, url, status, note` | Generated |
 | `.browser-profile/<browser>/` | One profile per browser, holding your LinkedIn login | Generated |
-| `.run.json` | Start time, limits and browser of the current run | Generated |
+| `.run.json` | Start time, limits, agent and browser of the current run | Generated |
+| `issues.log` | Problems the agent reported, all runs: `date time problem  job-url` | Generated |
 | `run.log` | Every event of every run, the source of the live log | Generated |
 | `logs/<date-time>/` | Everything about one run, for debugging (see [Debug logs](#debug-logs)) | Generated |
 
@@ -42,13 +44,13 @@ Everything generated is gitignored. It contains personal data, so keep it that w
 
 ## Setup (once)
 
-Requirements: macOS, `uv`, `node`/`npx`, a Chromium-based browser (Chrome, Brave, Edge...), and `agy`
-logged in to your Google account. Nothing gets downloaded for the browser: it uses the one you have.
+Requirements: macOS, `uv`, `node`/`npx`, a Chromium-based browser (Chrome, Brave, Edge...), and an agent
+CLI, logged in: `agy` (default), `claude`, `codex` or `pi` (see [Agents](#agents)). Nothing gets downloaded for the browser: it uses the one you have.
 
 ```bash
 uv sync                                   # rendercv
 
-# Register the browser MCP in agy, once (agy only has a global MCP config).
+# agy only: register the browser MCP, once (agy only has a global MCP config; the others get it per run).
 # It points at `jobs.py mcp`, which starts Playwright MCP with the browser of the current run.
 agy mcp add linkedin_playwright $PWD/.venv/bin/python -- $PWD/jobs.py mcp
 
@@ -85,6 +87,20 @@ Each browser gets its own profile in `.browser-profile/<browser>/`, separate fro
 can keep using your browser while the agent runs. Firefox and Safari aren't supported (Playwright can only
 drive its own builds of those).
 
+### Agents
+
+| `--agent` | How it gets the browser | Text-only calls (`tailor`, answers fill) | Tested |
+|---|---|---|---|
+| `agy` (default) | Global MCP registered once (Setup above) | `--disable-slash-commands` | Yes |
+| `claude` | `--mcp-config logs/<run>/mcp.json --strict-mcp-config` (ignores your other MCP servers) | `--tools ""` | Yes |
+| `pi` | `--mcp-config logs/<run>/mcp.json`; needs the `pi-mcp-adapter` extension (`pi install npm:pi-mcp-adapter`) | `--no-tools` | Yes |
+| `codex` | `-c mcp_servers.linkedin_playwright...` overrides | `--sandbox read-only` | No, codex wasn't installed |
+
+`--model` / `model` picks the model, in the agent's own format: `sonnet` for claude, `gpt-5.5` for codex,
+`provider/model` for pi, `agy models` lists agy's. Unset, each CLI uses its own default (Gemini 3.8 Flash
+High for agy). All of them run with permission prompts off (`--dangerously-skip-permissions` or equivalent),
+see [Risks and limits](#risks-and-limits). `tailor` uses the same agent and model as the run that called it.
+
 ## Running
 
 Your default search lives in **`search.toml`** (position, location, limits, filters), so normally you just run:
@@ -99,12 +115,15 @@ Any flag overrides `search.toml` for that run only:
 ```bash
 uv run jobs.py run "AI engineer" --location Germany --workplace remote --max-applies 1
 uv run jobs.py run "python developer" -l "San Francisco" --browser brave --max-time 1.5 -v
+uv run jobs.py run --agent claude --model sonnet
 ```
 
 | `search.toml` key / flag | Meaning |
 |---|---|
 | `position` / 1st argument | Search keywords. Quote multi-word values: `"AI engineer"` |
 | `location` / `-l`, `--location` | City, region or country: `-l "San Francisco"` |
+| `agent` / `-a`, `--agent` | Agent CLI: `agy`, `claude`, `codex`, `pi`, see [Agents](#agents). Default `agy` |
+| `model` / `-m`, `--model` | Model for that agent. Default: the agent's own |
 | `browser` / `-b`, `--browser` | Browser to drive, see [Browsers](#browsers). Default `chrome` |
 | `max_applies` / `--max-applies N` | Stop after N **successful** applications this run. `0` = unlimited |
 | `max_time` / `--max-time H` | Stop after H hours (e.g. `1.5`); the agent finishes the current job first, and is killed 10 min later if it doesn't stop. `0` = unlimited |
@@ -112,15 +131,14 @@ uv run jobs.py run "python developer" -l "San Francisco" --browser brave --max-t
 | `posted`, `experience`, `workplace`, `job_type`, `sort`, `distance`, `under_10_applicants`, `filter` | Search filters, see [docs/filters.md](docs/filters.md). A `filter` given as a flag is added to the list in the file |
 | `--dry-run` | Print the search URL and exit |
 | `-v` / `-q` | Live progress log: `-v` adds timings, URLs and render errors, `-q` shows only application results. Everything also goes to `run.log` |
-| `AGY_MODEL` env var | Model for the agent and CV tailoring. Default `gemini-3.8-flash-high` (`agy models` lists them) |
 
 A typo'd key or an invalid value in `search.toml` stops the run with an error rather than being silently ignored.
 
-Before the browser starts, `run` does a quick preflight: agy and the `linkedin_playwright` MCP are set up
-(it prints the register command if not), the browser exists and you have logged in with it once, and
+Before the browser starts, `run` does a quick preflight: the agent CLI is installed (for agy, also that
+the `linkedin_playwright` MCP is registered; it prints the register command if not), the browser exists and you have logged in with it once, and
 `cv.yaml` renders. It re-renders `base_cv.pdf` if
 `cv.yaml` changed. If `answers.md` still has TODOs, it lists them and asks:
-`[f]` fill what your CV answers with Gemini (shows a diff, asks before saving, keeps `answers.md.bak`),
+`[f]` fill what your CV answers with the agent (shows a diff, asks before saving, keeps `answers.md.bak`),
 `[c]` continue anyway, or `[q]` quit.
 
 ### Live log
@@ -137,7 +155,7 @@ While the agent works, `run` prints what's happening, in color:
 22:25:13 agent finished (exit 0): 2 applied this run
 ```
 
-Green = applied, yellow = skipped or warning, red = failed or error. `-v` adds grey debug lines (Gemini timings,
+Green = applied, yellow = skipped or warning, red = failed or error. `-v` adds grey debug lines (model timings,
 job URLs, RenderCV errors), `-q` keeps only the application results. `tailor` and `log` are run by the agent,
 so their events go through `run.log`, which `run` follows; the file keeps every event of every run. Between
 "agent started" and the first job it's quiet: that's the agent browsing LinkedIn. The agent's own summary is
@@ -153,10 +171,16 @@ Every `run` writes a folder `logs/<YYYYMMDD-HHMMSS>/`, whose path is printed at 
 | File | What it is | Look here when |
 |---|---|---|
 | `prompt.txt` | The command line and the exact prompt the agent got | The agent ignored an instruction or a filter |
+| `mcp.json` | How the agent CLI starts the browser MCP (not used by agy) | The agent had no browser tools |
 | `agent.txt` | Everything the agent printed, including its final summary | It stopped early or said something odd |
 | `events.log` | This run's events (all levels, including debug) | You want the timeline |
 | `browser/session-*/session.md` | Every browser action the agent took, with its arguments and the page snapshot it got back | It got stuck on a popup or clicked the wrong thing |
-| `cli-*.log` | agy's own logs for the agent and each `tailor` call | agy or Gemini errors (auth, quota, crashes) |
+| `cli-*.log` | agy's own logs for the agent and each `tailor` call (agy only) | agy or Gemini errors (auth, quota, crashes) |
+
+Problems the agent noticed itself are also in `issues.log`, one line each across all runs, and show up
+as yellow `issue:` lines in the live log. The agent reports them with `uv run jobs.py issue "<what happened>" --url <job>`
+whenever a tool or command fails, a popup won't close, a page doesn't load, a field can't be filled, an upload
+fails or a filter isn't applied. Read it after a run: `cat issues.log`.
 
 `session.md` is the most useful one: search it for the last `### Tool call` to see where the agent was when
 it stopped. The folders hold page contents from LinkedIn and your answers, so they're gitignored, and nothing
@@ -173,7 +197,8 @@ The `[now: ...]` values come from `search.toml`, so yours may differ from the on
 usage: jobs.py [-h] command ...
 
 Applies to LinkedIn Easy Apply jobs for you, uploading a CV tailored to each job.
-An agy (Gemini) agent drives your browser; answers come from answers.md, the CV from cv.yaml.
+An agent CLI (agy, claude, codex or pi) drives your browser; answers come from answers.md, the CV from cv.yaml.
+Problems the agent hits go to issues.log; everything about a run goes to logs/<date-time>/.
 
 positional arguments:
   command
@@ -181,19 +206,21 @@ positional arguments:
     login     log in to LinkedIn in the browser the agent uses (once per browser)
     tailor    write a CV for one job (the agent calls this)
     log       record a job's result (the agent calls this)
-    mcp       start the browser MCP (agy runs this, see README > Setup)
+    issue     report a problem during a run (the agent calls this)
+    mcp       start the browser MCP (the agent CLI runs this)
 
 options:
   -h, --help  show this help message and exit
 
 first time:
-  agy mcp add linkedin_playwright $PWD/.venv/bin/python -- $PWD/jobs.py mcp
+  agy mcp add linkedin_playwright $PWD/.venv/bin/python -- $PWD/jobs.py mcp     (agy only)
   uv run jobs.py login                   log in to LinkedIn (Chrome); -b brave for Brave
 
 every day:
   uv run jobs.py run --dry-run           preview the search from search.toml
   uv run jobs.py run                     apply with search.toml
   uv run jobs.py run "ai engineer" -l "San Francisco" -b brave --max-time 1.5 -v
+  uv run jobs.py run --agent claude --model sonnet
 
 more:  uv run jobs.py run -h    ·    README.md    ·    docs/filters.md
 ```
@@ -204,8 +231,8 @@ more:  uv run jobs.py run -h    ·    README.md    ·    docs/filters.md
 ```
 usage: jobs.py run [-h] [-l LOCATION] [--posted X[,Y]] [--experience X[,Y]] [--workplace X[,Y]]
                    [--job-type X[,Y]] [--sort X] [--distance MILES] [--under-10-applicants]
-                   [--filter KEY=VALUE] [--max-applies N] [--max-time HOURS] [--max-pages N] [-b BROWSER]
-                   [--dry-run] [-v] [-q]
+                   [--filter KEY=VALUE] [--max-applies N] [--max-time HOURS] [--max-pages N]
+                   [-a {agy,claude,codex,pi}] [-m MODEL] [-b BROWSER] [--dry-run] [-v] [-q]
                    [position]
 
 Search LinkedIn with Easy Apply only and apply to each job with a tailored CV.
@@ -235,12 +262,15 @@ limits (0 = unlimited):
   --max-time HOURS      stop after HOURS (e.g. 1.5), finishing the current job first [now: 0]
   --max-pages N         result pages to go through, 25 jobs each [now: 3]
 
-browser and output:
+agent, browser and output:
+  -a, --agent {agy,claude,codex,pi}
+                        agent CLI that drives the browser and writes the CVs [now: agy]
+  -m, --model MODEL     model for --agent; none = its default (gemini-3.8-flash-high for agy) [now: none]
   -b, --browser BROWSER
                         chrome, brave, edge, chromium or the path of any Chromium-based browser [now:
                         chrome]
   --dry-run             print the search URL and exit, no browser
-  -v, --verbose         live log + debug: Gemini timings, job URLs, render errors
+  -v, --verbose         live log + debug: model timings, job URLs, render errors
   -q, --quiet           live log with application results only
 
 Every option's default comes from search.toml ([now: ...] shows it); a flag overrides it for this run.
@@ -252,6 +282,7 @@ examples:
   uv run jobs.py run "ml engineer" -l "European Union" --workplace remote --posted 24h
   uv run jobs.py run "data scientist" -l Madrid --max-applies 0 --max-time 2 -q
   uv run jobs.py run "backend" -l Berlin --filter f_C=1441 --dry-run
+  uv run jobs.py run "python developer" --agent pi --model openrouter/xiaomi/mimo-v2.6-pro
 ```
 </details>
 
@@ -270,14 +301,14 @@ options:
 ```
 </details>
 
-`tailor`, `log` and `mcp` are called by the agent and agy, not by you; their `-h` says what they do.
+`tailor`, `log`, `issue` and `mcp` are called by the agent, not by you; their `-h` says what they do.
 
 ## How it behaves
 
 **Choosing jobs.** It takes every Easy Apply job in the results, in order, skipping any job that's
 already logged or marked "Applied". There's no fit scoring: narrow the search with filters.
 
-**CV tailoring** (`jobs.py tailor`). Gemini gets your `cv.yaml` and the job description and returns a new
+**CV tailoring** (`jobs.py tailor`). The agent (a text-only call, no tools) gets your `cv.yaml` and the job description and returns a new
 YAML file. The rules it's given:
 
 - Truth first: it may reorder, reword, emphasize or drop content, but never invent employers, dates,
@@ -285,12 +316,16 @@ YAML file. The rules it's given:
 - It mirrors the job's keywords only where your CV supports them.
 - Identity, `design`, `locale` and `settings` stay unchanged. The CV must fit on one page.
 
-If RenderCV rejects the YAML, the error goes back to Gemini for one retry. If that fails too, the agent
+If RenderCV rejects the YAML, the error goes back to the agent for one retry. If that fails too, the agent
 uploads `base_cv.pdf`. Before relying on it, spot-check a few `applications/*/CV.yaml` against `cv.yaml`.
 
 **Form filling.** Answers come only from `answers.md` and `cv.yaml`. If a required question isn't
 covered, the agent discards that application and logs it as `skipped` with the question as the note. It
 unticks "Follow company" before submitting.
+
+**Popups and getting stuck.** The agent closes unexpected popups (Premium ads, "Save this application?",
+surveys...) with Escape or their close button, and handles native browser dialogs. If it's stuck on the same
+job after 3 attempts, it logs that job as `failed` and moves on.
 
 **Guardrails in the prompt.** The agent must never pay for anything, message anyone, or edit your
 profile or the project files, and it stops on a login page or captcha.
@@ -311,15 +346,16 @@ To retry a job, delete its line from `applied.jsonl`.
 
 - **Account risk.** Automated use breaks LinkedIn's terms and it can restrict accounts. Keep runs small
   (tens a day, not hundreds) and watch the first ones.
-- **Shell access.** agy runs with `--dangerously-skip-permissions`, so the Gemini agent can run any shell
-  command as you for the whole run. The prompt forbids editing files, but that's an instruction, not a
+- **Shell access.** Every agent runs with its permission prompts off (`--dangerously-skip-permissions`,
+  codex `--dangerously-bypass-approvals-and-sandbox`, pi has none), so it can run any shell command as you
+  for the whole run. The prompt forbids editing files, but that's an instruction, not a
   sandbox.
-- **Global MCP.** `linkedin_playwright` is visible to every agy session. Remove it with
+- **Global MCP (agy).** `linkedin_playwright` is visible to every agy session. Remove it with
   `agy mcp remove linkedin_playwright`.
 - **Easy Apply only.** Jobs that apply on the company's own site are filtered out by `f_AL=true`.
 - **One page isn't checked.** Tailored CVs are asked to fit one page, but nothing verifies it. Check
   with `pdfinfo applications/*/CV.pdf | grep Pages`.
-- **Quota.** Each job is one long agent turn plus one tailoring call against your agy (Google) quota.
+- **Quota.** Each job is one long agent turn plus one tailoring call, against the chosen agent's quota or API bill.
 
 ## Troubleshooting
 

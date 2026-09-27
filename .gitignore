@@ -9,3 +9,4 @@ rendercv_output/
 .playwright-mcp/
 run.log
 logs/
+issues.log

@@ -4,6 +4,8 @@
 position = "python developer"      # LinkedIn search keywords
 location = "Valencia"              # country, city, region or "European Union"
 browser = "chrome"                 # chrome | brave | edge | chromium | executable path
+agent = "agy"                      # agy | claude | codex | pi
+# model = "sonnet"                 # model for the agent; unset = its default
 
 max_applies = 10                   # stop after N successful applications per run, 0 = unlimited
 # max_time = 2                    # hours; stops after the current job, 0 = unlimited

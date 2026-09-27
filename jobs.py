@@ -1,10 +1,11 @@
-"""LinkedIn Easy Apply automation driven by agy (Gemini) + Playwright MCP, with a tailored RenderCV CV per job.
+"""LinkedIn Easy Apply automation driven by an agent CLI (agy, claude, codex, pi) + Playwright MCP, with a tailored RenderCV CV per job.
 
   uv run jobs.py login --browser brave                                    # once per browser
   uv run jobs.py run "python developer" -l Valencia --max-applies 5 -v    # start the agent
   uv run jobs.py tailor --company X --title Y --jd jd.txt                  # called by the agent
   uv run jobs.py log --company X --title Y --url U --status applied        # called by the agent
-  jobs.py mcp                                                             # started by agy
+  uv run jobs.py issue "what went wrong" --url U                          # called by the agent
+  jobs.py mcp                                                             # started by the agent CLI
 """
 import argparse, datetime, difflib, json, os, re, shutil, subprocess, sys, tempfile, threading, time, tomllib
 from pathlib import Path
@@ -14,8 +15,10 @@ ROOT = Path(__file__).parent.resolve()
 BASE_CV, ANSWERS, LOG, RUN, APPS, SEARCH, EVENTS, LOGS = (ROOT / p for p in (
     "cv.yaml", "answers.md", "applied.jsonl", ".run.json", "applications", "search.toml", "run.log", "logs"))
 AGY_LOGS = Path.home() / ".gemini/antigravity-cli/log"
-MODEL = os.environ.get("AGY_MODEL", "gemini-3.8-flash-high")
-MCP = "linkedin_playwright"  # registered in agy, see README
+AGENTS = ("agy", "claude", "codex", "pi")  # agent CLIs, see agent_cmd()
+AGY_MODEL = "gemini-3.8-flash-high"  # agy's own default isn't Flash
+MCP = "linkedin_playwright"  # the browser MCP server's name in every agent CLI
+ISSUES = ROOT / "issues.log"
 BROWSERS = {  # macOS; any other Chromium-based browser works by passing its executable path
     "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "brave": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -76,10 +79,30 @@ def follow(stop: threading.Event, level: int, offset: int) -> None:
                 print(f"\033[2m{ts}\033[0m \033[{COLORS[kind]}m{msg}\033[0m" if color else f"{ts} {msg}", flush=True)
 
 
-def agy(prompt: str, cwd: Path, timeout="0s") -> tuple[str, str]:
-    r = subprocess.run(["agy", "-p", prompt, "--model", MODEL, "--dangerously-skip-permissions",
-                        "--disable-slash-commands", "--print-timeout", timeout],
-                       cwd=cwd, capture_output=True, text=True)
+def agent_cmd(agent: str, prompt: str, model: str = "", mcp: Path | None = None) -> list[str]:
+    """One-shot command line for an agent CLI. With `mcp` (an mcp.json) it gets the browser and no permission
+    prompts; without it, it's a text-only call (tailor, answers.md fill)."""
+    if agent == "agy":  # agy only has a global MCP config: registered once, see README > Setup
+        cmd = ["agy", "-p", prompt, "--dangerously-skip-permissions"] + (
+            [] if mcp else ["--disable-slash-commands", "--print-timeout", "300s"])
+        model = model or AGY_MODEL
+    elif agent == "claude":  # --tools is variadic, so the prompt goes right after -p
+        cmd = ["claude", "-p", prompt, "--dangerously-skip-permissions"] + (
+            ["--mcp-config", str(mcp), "--strict-mcp-config"] if mcp else ["--tools", ""])
+    elif agent == "codex":  # no MCP file flag: pass the server as config overrides
+        srv = json.loads(mcp.read_text())["mcpServers"][MCP] if mcp else {}
+        cmd = ["codex", "exec", "--skip-git-repo-check"] + (
+            ["--dangerously-bypass-approvals-and-sandbox",
+             "-c", f"mcp_servers.{MCP}.command={json.dumps(srv['command'])}",
+             "-c", f"mcp_servers.{MCP}.args={json.dumps(srv['args'])}",
+             "-c", f"mcp_servers.{MCP}.startup_timeout_sec=120"] if mcp else ["--sandbox", "read-only"])
+    else:  # pi, MCP through the pi-mcp-adapter extension
+        cmd = ["pi", "-p", "--no-session"] + (["--mcp-config", str(mcp)] if mcp else ["--no-tools"])
+    return cmd + (["--model", model] if model else []) + ([prompt] if agent in ("codex", "pi") else [])
+
+
+def ask(prompt: str, cwd: Path, agent: str, model: str) -> tuple[str, str]:
+    r = subprocess.run(agent_cmd(agent, prompt, model), cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True)
     return r.stdout, r.stderr
 
 
@@ -120,12 +143,14 @@ def tailor(a) -> int:
         print(f"{e}\n{fallback}")
         return 1
     start = time.time()
+    run = json.loads(RUN.read_text()) if RUN.exists() else {}  # same agent as the run that called us
+    agent = run.get("agent", "agy")
     for attempt in (1, 2):  # one retry with the render error fed back
         t = time.time()
         with tempfile.TemporaryDirectory() as tmp:  # empty cwd so the model can't touch the project
-            reply, err = agy(TAILOR_PROMPT.format(cv=BASE_CV.read_text(), title=a.title, company=a.company, jd=jd, error=error),
-                        Path(tmp), "300s")
-        say(f"attempt {attempt}: Gemini replied in {time.time() - t:.0f}s, {len(reply)} chars (jd {len(jd)} chars)", "debug")
+            reply, err = ask(TAILOR_PROMPT.format(cv=BASE_CV.read_text(), title=a.title, company=a.company, jd=jd, error=error),
+                             Path(tmp), agent, run.get("model", ""))
+        say(f"attempt {attempt}: {agent} replied in {time.time() - t:.0f}s, {len(reply)} chars (jd {len(jd)} chars)", "debug")
         fenced = re.search(r"```\w*\n(.*?)\n```", reply, re.S)  # models like to wrap YAML in prose + fences
         yml.write_text((fenced[1] if fenced else reply).strip() + "\n")
         r = render(yml, pdf)
@@ -134,8 +159,8 @@ def tailor(a) -> int:
             print(pdf)
             return 0
         if not reply.strip():
-            say(f"Gemini returned nothing: {err.strip()[-300:]}", "err")
-            print(f"agy returned nothing: {err.strip()[-500:]}", file=sys.stderr)
+            say(f"{agent} returned nothing: {err.strip()[-300:]}", "err")
+            print(f"{agent} returned nothing: {err.strip()[-500:]}", file=sys.stderr)
             break  # quota/auth error: a retry won't help
         error = f"\nYour previous YAML failed to render, fix it:\n{(r.stdout + r.stderr)[-3000:]}"
         say(f"attempt {attempt}: RenderCV rejected the YAML", "warn")
@@ -160,7 +185,17 @@ def log(a) -> int:
     return 0
 
 
-SYSTEM = """You apply to LinkedIn jobs with Easy Apply. Drive the browser ONLY with the `{mcp}` MCP tools (never invisible_playwright_mcp).
+def issue(a) -> int:
+    """The agent reports a problem it hit: one line in issues.log (all runs), and a warning in the live log."""
+    url = f"  {job_url(a.url)}" if a.url else ""
+    with ISSUES.open("a") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(a.text.split())}{url}\n")
+    say(f"issue: {a.text}{url}", "warn")
+    print("noted, carry on")
+    return 0
+
+
+SYSTEM = """You apply to LinkedIn jobs with Easy Apply. Drive the browser ONLY with the `{mcp}` MCP tools (no other browser or Playwright tools).
 Project directory: {root}. Run shell commands from there.
 
 For each search results page (search URL + &start=0, 25, 50, ...), for each job card:
@@ -181,6 +216,11 @@ Unexpected popups (premium ads, "Save this application?", surveys, cookie banner
 - Native browser dialogs (alert/confirm/beforeunload): use browser_handle_dialog.
 - If an action has no effect, take a fresh snapshot before retrying; the page probably changed.
 If you are stuck on the same job after 3 attempts, re-open the search URL, log that job as failed with what blocked you as note, and move on.
+
+Report every execution problem as soon as it happens, then carry on:
+   uv run jobs.py issue "<what happened, where, what you tried>" --url "<job url, if any>"
+Problems = a tool or command error, a popup you couldn't close, a page that didn't load or looked wrong, a form field you
+couldn't fill, an upload that failed, a filter that wasn't applied, anything unexpected. Not needed for normal skips.
 
 On the first results page, check the filter pills at the top show the requested filters as active; if one is not, say which and continue.
 If LinkedIn shows a login page, a captcha or a security check, stop and say so.
@@ -227,13 +267,13 @@ Change nothing else. Output ONLY the full file, no code fences.
 </cv>"""
 
 
-def preflight(name: str) -> None:
+def preflight(a) -> None:
     """Cheap checks before the browser starts. Exits on anything that would break the run."""
-    problems = []
-    if not shutil.which("agy"):
-        sys.exit("preflight: agy not found on PATH")
-    mcps = subprocess.run(["agy", "mcp", "list"], capture_output=True, text=True).stdout.splitlines()
-    if not any(l.startswith(MCP + " ") and "jobs.py mcp" in l for l in mcps):
+    problems, name = [], a.browser
+    if not shutil.which(a.agent):
+        sys.exit(f"preflight: {a.agent} not found on PATH")
+    mcps = subprocess.run(["agy", "mcp", "list"], capture_output=True, text=True).stdout.splitlines() if a.agent == "agy" else []
+    if a.agent == "agy" and not any(l.startswith(MCP + " ") and "jobs.py mcp" in l for l in mcps):
         problems.append(f"MCP `{MCP}` is missing or outdated in agy. Register it with:\n"
                         f"  agy mcp remove {MCP}; agy mcp add {MCP} {ROOT}/.venv/bin/python -- {ROOT}/jobs.py mcp")
     exe, profile = browser(name)
@@ -256,22 +296,22 @@ def preflight(name: str) -> None:
         print("\n".join(f"  {t}" for t in todos[:10]) + ("\n  ..." if len(todos) > 10 else ""))
         if not sys.stdin.isatty():
             return
-        c = input("[f] fill what the CV answers with Gemini  [c] continue anyway  [q] quit > ").strip().lower()
+        c = input(f"[f] fill what the CV answers with {a.agent}  [c] continue anyway  [q] quit > ").strip().lower()
         if c == "c":
             return
         if c != "f":
             sys.exit(0)
         old = ANSWERS.read_text()
-        print("asking Gemini (~30s)...")
-        new, err = agy(FILL_PROMPT.format(today=datetime.date.today(), answers=old, cv=BASE_CV.read_text()),
-                       Path(tempfile.gettempdir()), "300s")
+        print(f"asking {a.agent} (~30s)...")
+        new, err = ask(FILL_PROMPT.format(today=datetime.date.today(), answers=old, cv=BASE_CV.read_text()),
+                       Path(tempfile.gettempdir()), a.agent, a.model)
         new = new.strip() + "\n"
         if not new.strip() or "## Agent policy" not in new:  # empty or mangled reply: never overwrite
-            print(f"Gemini reply unusable, answers.md unchanged. {err.strip()[-300:]}")
+            print(f"{a.agent} reply unusable, answers.md unchanged. {err.strip()[-300:]}")
             continue
         diff = list(difflib.unified_diff(old.splitlines(), new.splitlines(), "answers.md", "filled", lineterm="", n=0))
         if not diff:
-            print("Gemini found nothing in the CV for the remaining TODOs.")
+            print(f"{a.agent} found nothing in the CV for the remaining TODOs.")
             continue
         print("\n".join(diff))
         if input("Save these changes? (old copy -> answers.md.bak) [y/N] > ").strip().lower() == "y":
@@ -284,11 +324,15 @@ def run(a) -> int:
     print(url)
     if a.dry_run:
         return 0
-    preflight(a.browser)
+    preflight(a)
     started, offset = time.time(), EVENTS.stat().st_size if EVENTS.exists() else 0
     out = LOGS / time.strftime("%Y%m%d-%H%M%S")  # everything about this run, for debugging afterwards
     out.mkdir(parents=True)
-    RUN.write_text(json.dumps({"started": started, "max": a.max_applies, "hours": a.max_time, "browser": a.browser, "dir": str(out)}))
+    RUN.write_text(json.dumps({"started": started, "max": a.max_applies, "hours": a.max_time, "browser": a.browser,
+                               "agent": a.agent, "model": a.model, "dir": str(out)}))
+    mcp_json = out / "mcp.json"  # how the agent CLI starts the browser (agy uses its global config instead)
+    mcp_json.write_text(json.dumps({"mcpServers": {MCP: {"command": sys.executable, "args": [str(ROOT / "jobs.py"), "mcp"],
+                                                         "directTools": True}}}, indent=2))  # directTools: pi
     stop = threading.Event()
     tail = threading.Thread(target=follow, args=(stop, 1 + a.verbose - a.quiet, offset), daemon=True)
     tail.start()
@@ -300,15 +344,15 @@ def run(a) -> int:
               f"\n\nSearch URL: {url}\nProcess {pages}.\n"
               f"Already processed job URLs: {json.dumps([e['url'] for e in logged()][-300:])}\n\n"
               f"<candidate_answers>\n{ANSWERS.read_text()}\n</candidate_answers>\n\n<cv>\n{BASE_CV.read_text()}\n</cv>")
-    say(f"agent started ({MODEL}, {a.browser}), browsing LinkedIn... (-v for more detail)")
+    say(f"agent started ({a.agent} {a.model or (AGY_MODEL if a.agent == 'agy' else 'default model')}, {a.browser}), browsing LinkedIn... (-v for more detail)")
     say(f"prompt: {len(prompt)} chars", "debug")
     (out / "prompt.txt").write_text(" ".join(sys.argv) + "\n\n" + prompt)
     rc = 1
     try:
         # the soft limit is LIMIT REACHED from `log`; kill 10 min later in case the agent never logs again
         with (out / "agent.txt").open("w") as f:
-            rc = subprocess.run(["agy", "-p", prompt, "--model", MODEL, "--dangerously-skip-permissions"], cwd=ROOT,
-                                stdout=f, stderr=subprocess.STDOUT,
+            rc = subprocess.run(agent_cmd(a.agent, prompt, a.model, mcp_json), cwd=ROOT,
+                                stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT,
                                 timeout=a.max_time * 3600 + 600 if a.max_time else None).returncode
     except subprocess.TimeoutExpired:
         say(f"--max-time {a.max_time:g}h passed and the agent didn't stop: killed it", "warn")
@@ -367,16 +411,18 @@ def key_value(v):
 
 
 HELP = """Applies to LinkedIn Easy Apply jobs for you, uploading a CV tailored to each job.
-An agy (Gemini) agent drives your browser; answers come from answers.md, the CV from cv.yaml."""
+An agent CLI (agy, claude, codex or pi) drives your browser; answers come from answers.md, the CV from cv.yaml.
+Problems the agent hits go to issues.log; everything about a run goes to logs/<date-time>/."""
 
 HELP_EPILOG = f"""first time:
-  agy mcp add {MCP} $PWD/.venv/bin/python -- $PWD/jobs.py mcp
+  agy mcp add {MCP} $PWD/.venv/bin/python -- $PWD/jobs.py mcp     (agy only)
   uv run jobs.py login                   log in to LinkedIn (Chrome); -b brave for Brave
 
 every day:
   uv run jobs.py run --dry-run           preview the search from search.toml
   uv run jobs.py run                     apply with search.toml
   uv run jobs.py run "ai engineer" -l "San Francisco" -b brave --max-time 1.5 -v
+  uv run jobs.py run --agent claude --model sonnet
 
 more:  uv run jobs.py run -h    ·    README.md    ·    docs/filters.md"""
 
@@ -388,7 +434,8 @@ examples:
   uv run jobs.py run "python developer" -l Valencia
   uv run jobs.py run "ml engineer" -l "European Union" --workplace remote --posted 24h
   uv run jobs.py run "data scientist" -l Madrid --max-applies 0 --max-time 2 -q
-  uv run jobs.py run "backend" -l Berlin --filter f_C=1441 --dry-run"""
+  uv run jobs.py run "backend" -l Berlin --filter f_C=1441 --dry-run
+  uv run jobs.py run "python developer" --agent pi --model openrouter/xiaomi/mimo-v2.6-pro"""
 
 
 def main():
@@ -414,11 +461,13 @@ def main():
     g.add_argument("--max-time", type=float, default=0, metavar="HOURS",
                    help="stop after HOURS (e.g. 1.5), finishing the current job first" + now)
     g.add_argument("--max-pages", type=int, default=0, metavar="N", help="result pages to go through, 25 jobs each" + now)
-    g = r.add_argument_group("browser and output")
+    g = r.add_argument_group("agent, browser and output")
+    g.add_argument("-a", "--agent", default="agy", choices=AGENTS, help="agent CLI that drives the browser and writes the CVs" + now)
+    g.add_argument("-m", "--model", default="", help=f"model for --agent; none = its default ({AGY_MODEL} for agy)" + now)
     g.add_argument("-b", "--browser", default="chrome",
                    help=f"{', '.join(BROWSERS)} or the path of any Chromium-based browser" + now)
     g.add_argument("--dry-run", action="store_true", help="print the search URL and exit, no browser")
-    g.add_argument("-v", "--verbose", action="store_true", help="live log + debug: Gemini timings, job URLs, render errors")
+    g.add_argument("-v", "--verbose", action="store_true", help="live log + debug: model timings, job URLs, render errors")
     g.add_argument("-q", "--quiet", action="store_true", help="live log with application results only")
     if SEARCH.exists():  # search.toml = defaults, CLI flags override (filter lists are added to)
         defaults = tomllib.loads(SEARCH.read_text())
@@ -450,7 +499,7 @@ def main():
             v = ", ".join(x.default) if isinstance(x.default, list) else x.default
             x.help = x.help.replace(now, f" [now: {v if v not in (None, '') else 'none'}]".replace("%", "%%"))
     t = sub.add_parser("tailor", help="write a CV for one job (the agent calls this)",
-                       description="Tailors cv.yaml to a job description with Gemini and renders "
+                       description="Tailors cv.yaml to a job description with the run's agent and renders "
                                    "applications/<company-title>/CV.pdf. The last line printed is the PDF to upload.")
     t.add_argument("--company", required=True)
     t.add_argument("--title", required=True)
@@ -461,12 +510,16 @@ def main():
         l.add_argument(f"--{k}", required=True)
     l.add_argument("--status", required=True, type=lambda s: s.strip().lower(), choices=("applied", "skipped", "failed"))
     l.add_argument("--note", default="", help="why, e.g. the question that blocked it")
-    sub.add_parser("mcp", help="start the browser MCP (agy runs this, see README > Setup)",
+    i = sub.add_parser("issue", help="report a problem during a run (the agent calls this)",
+                       description="Appends a line to issues.log and shows it as a warning in the live log.")
+    i.add_argument("text", help="what happened, where, what was tried")
+    i.add_argument("--url", default="", help="the job it happened on")
+    sub.add_parser("mcp", help="start the browser MCP (the agent CLI runs this)",
                    description="Starts Playwright MCP with the browser of the current run (.run.json).")
     a = p.parse_args()
     if a.cmd == "run" and not a.position:
         p.error("no position: pass one or set `position` in search.toml")
-    sys.exit({"run": run, "tailor": tailor, "log": log, "login": login, "mcp": mcp}[a.cmd](a))
+    sys.exit({"run": run, "tailor": tailor, "log": log, "issue": issue, "login": login, "mcp": mcp}[a.cmd](a))
 
 
 if __name__ == "__main__":
