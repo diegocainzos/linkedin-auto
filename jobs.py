@@ -175,6 +175,12 @@ For each search results page (search URL + &start=0, 25, 50, ...), for each job 
 7. Run: uv run jobs.py log --company "<company>" --title "<title>" --url "<job url, e.g. https://www.linkedin.com/jobs/view/123/>" --status applied|skipped|failed --note "<short note>"
    If it prints LIMIT REACHED, stop immediately.
 
+Unexpected popups (premium ads, "Save this application?", surveys, cookie banners, "Share your profile?", tooltips):
+- Close them: press Escape, or click Dismiss / Close / X / "Not now" / "No thanks" / "Discard". Never click the upsell button.
+- Native browser dialogs (alert/confirm/beforeunload): use browser_handle_dialog.
+- If an action has no effect, take a fresh snapshot before retrying; the page probably changed.
+If you are stuck on the same job after 3 attempts, re-open the search URL, log that job as failed with what blocked you as note, and move on.
+
 On the first results page, check the filter pills at the top show the requested filters as active; if one is not, say which and continue.
 If LinkedIn shows a login page, a captcha or a security check, stop and say so.
 Never click anything that pays, messages people, or edits the LinkedIn profile. Do not modify project files.
