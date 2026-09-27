@@ -11,8 +11,9 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 ROOT = Path(__file__).parent.resolve()
-BASE_CV, ANSWERS, LOG, RUN, APPS, SEARCH, EVENTS = (ROOT / p for p in (
-    "cv.yaml", "answers.md", "applied.jsonl", ".run.json", "applications", "search.toml", "run.log"))
+BASE_CV, ANSWERS, LOG, RUN, APPS, SEARCH, EVENTS, LOGS = (ROOT / p for p in (
+    "cv.yaml", "answers.md", "applied.jsonl", ".run.json", "applications", "search.toml", "run.log", "logs"))
+AGY_LOGS = Path.home() / ".gemini/antigravity-cli/log"
 MODEL = os.environ.get("AGY_MODEL", "gemini-3.8-flash-high")
 MCP = "linkedin_playwright"  # registered in agy, see README
 BROWSERS = {  # macOS; any other Chromium-based browser works by passing its executable path
@@ -284,9 +285,12 @@ def run(a) -> int:
     if a.dry_run:
         return 0
     preflight(a.browser)
-    RUN.write_text(json.dumps({"started": time.time(), "max": a.max_applies, "hours": a.max_time, "browser": a.browser}))
+    started, offset = time.time(), EVENTS.stat().st_size if EVENTS.exists() else 0
+    out = LOGS / time.strftime("%Y%m%d-%H%M%S")  # everything about this run, for debugging afterwards
+    out.mkdir(parents=True)
+    RUN.write_text(json.dumps({"started": started, "max": a.max_applies, "hours": a.max_time, "browser": a.browser, "dir": str(out)}))
     stop = threading.Event()
-    tail = threading.Thread(target=follow, args=(stop, 1 + a.verbose - a.quiet, EVENTS.stat().st_size if EVENTS.exists() else 0), daemon=True)
+    tail = threading.Thread(target=follow, args=(stop, 1 + a.verbose - a.quiet, offset), daemon=True)
     tail.start()
     say(f"searching \"{a.position}\" in {a.location or 'anywhere'}, stop after {a.max_applies or '∞'} applies"
         + (f" or {a.max_time:g}h" if a.max_time else ""))
@@ -298,18 +302,29 @@ def run(a) -> int:
               f"<candidate_answers>\n{ANSWERS.read_text()}\n</candidate_answers>\n\n<cv>\n{BASE_CV.read_text()}\n</cv>")
     say(f"agent started ({MODEL}, {a.browser}), browsing LinkedIn... (-v for more detail)")
     say(f"prompt: {len(prompt)} chars", "debug")
+    (out / "prompt.txt").write_text(" ".join(sys.argv) + "\n\n" + prompt)
     rc = 1
     try:
         # the soft limit is LIMIT REACHED from `log`; kill 10 min later in case the agent never logs again
-        rc = subprocess.run(["agy", "-p", prompt, "--model", MODEL, "--dangerously-skip-permissions"], cwd=ROOT,
-                            timeout=a.max_time * 3600 + 600 if a.max_time else None).returncode
+        with (out / "agent.txt").open("w") as f:
+            rc = subprocess.run(["agy", "-p", prompt, "--model", MODEL, "--dangerously-skip-permissions"], cwd=ROOT,
+                                stdout=f, stderr=subprocess.STDOUT,
+                                timeout=a.max_time * 3600 + 600 if a.max_time else None).returncode
     except subprocess.TimeoutExpired:
         say(f"--max-time {a.max_time:g}h passed and the agent didn't stop: killed it", "warn")
     finally:  # also on Ctrl+C
         n = applied_since(json.loads(RUN.read_text())["started"])
         say(f"agent finished (exit {rc}): {n} applied this run", "ok" if rc == 0 else "err")
+        say(f"debug logs: {out}/")
         stop.set()
         tail.join(timeout=2)
+        print((out / "agent.txt").read_text(), end="")
+        with EVENTS.open() as f:
+            f.seek(offset)
+            (out / "events.log").write_text(f.read())
+        for p in AGY_LOGS.glob("cli-*.log"):  # the agent's and every `tailor` call's agy log
+            if p.stat().st_mtime >= started:
+                shutil.copy2(p, out / p.name)
     return rc
 
 
@@ -330,8 +345,10 @@ def login(a) -> int:
 
 def mcp(a) -> int:
     """agy starts the browser MCP through this (README > Setup), so each run can pick its browser."""
-    exe, profile = browser(json.loads(RUN.read_text()).get("browser", "chrome") if RUN.exists() else "chrome")
-    os.execvp("npx", ["npx", "-y", "@playwright/mcp@latest", "--executable-path", exe, "--user-data-dir", str(profile)])
+    run = json.loads(RUN.read_text()) if RUN.exists() else {}
+    exe, profile = browser(run.get("browser", "chrome"))
+    save = ["--save-session", "--output-dir", run["dir"] + "/browser"] if run.get("dir") else []  # every tool call + page snapshot
+    os.execvp("npx", ["npx", "-y", "@playwright/mcp@latest", "--executable-path", exe, "--user-data-dir", str(profile), *save])
 
 
 def choices(codes):

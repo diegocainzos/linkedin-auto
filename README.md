@@ -36,6 +36,7 @@ jobs.py run ──► agy -p (Gemini) ──► linkedin_playwright MCP = jobs.p
 | `.browser-profile/<browser>/` | One profile per browser, holding your LinkedIn login | Generated |
 | `.run.json` | Start time, limits and browser of the current run | Generated |
 | `run.log` | Every event of every run, the source of the live log | Generated |
+| `logs/<date-time>/` | Everything about one run, for debugging (see [Debug logs](#debug-logs)) | Generated |
 
 Everything generated is gitignored. It contains personal data, so keep it that way.
 
@@ -144,6 +145,22 @@ printed when it finishes.
 
 `Ctrl+C` stops at any time. Jobs already logged are skipped on the next run, and so are jobs LinkedIn
 marks as "Applied".
+
+### Debug logs
+
+Every `run` writes a folder `logs/<YYYYMMDD-HHMMSS>/`, whose path is printed at the end:
+
+| File | What it is | Look here when |
+|---|---|---|
+| `prompt.txt` | The command line and the exact prompt the agent got | The agent ignored an instruction or a filter |
+| `agent.txt` | Everything the agent printed, including its final summary | It stopped early or said something odd |
+| `events.log` | This run's events (all levels, including debug) | You want the timeline |
+| `browser/session-*/session.md` | Every browser action the agent took, with its arguments and the page snapshot it got back | It got stuck on a popup or clicked the wrong thing |
+| `cli-*.log` | agy's own logs for the agent and each `tailor` call | agy or Gemini errors (auth, quota, crashes) |
+
+`session.md` is the most useful one: search it for the last `### Tool call` to see where the agent was when
+it stopped. The folders hold page contents from LinkedIn and your answers, so they're gitignored, and nothing
+deletes them: `rm -rf logs/` from time to time.
 
 ## Command reference
 
@@ -308,6 +325,7 @@ To retry a job, delete its line from `applied.jsonl`.
 
 | Symptom | Fix |
 |---|---|
+| Anything odd | Open the run's `logs/<date-time>/browser/session-*/session.md` ([Debug logs](#debug-logs)) |
 | Agent says it's not logged in, or hits a captcha | Re-run `uv run jobs.py login` and log in |
 | Agent sees a login page right after `login` | You logged in by opening the browser yourself: use `uv run jobs.py login --browser <same one>` |
 | "Profile in use" / browser won't start | Close the `login` window, or any window using `.browser-profile/<browser>/` |
