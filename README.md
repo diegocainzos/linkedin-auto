@@ -320,10 +320,16 @@ options:
 
 **Choosing jobs.** It takes every Easy Apply job in the public results, in order, skipping any job already in
 `jobs.db`. For each one it sends your `cv.yaml` and the job description to Jev (`typesafe/jev-1.13`, [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev-tutorial),
-~$0.00002 a call) with one yes/no question: does the CV meet the job's must-haves (stack, seniority, languages,
-location or work permit)? Jev answers with a probability. Below 0.5 (`FIT_APPLY` in `jobs.py`) the job is logged
-as `skipped` with note `not compatible (fit 0.23)`. If the API fails (it's alpha), the job is applied to anyway.
-The fit of every job is in `jobs.db`: raise the threshold if it lets bad jobs through.
+~$0.00002 a call) with one yes/no question: is the job in your field (AI/ML, data, Python backend... whatever
+your CV shows)? Seniority, years of experience and degree requirements are ignored on purpose, so senior jobs in
+your field get through; another core stack (Java, .NET, Go...), hardware or non-software work, or a spoken language
+your CV doesn't list, doesn't. Jev answers with a probability. Below 0.5 (`FIT_APPLY` in `jobs.py`) the job is
+logged as `skipped` with note `not compatible (fit 0.23)`. If the API fails (it's alpha), the job is applied to anyway.
+
+The question was tuned on 103 real jobs labelled by hand (`evals/`): at 0.5 it lets through 97% of the jobs in
+your field with 94% precision, and anything from 0.4 to 0.6 behaves about the same. The old question, which
+also checked seniority, let through 7%. To re-tune after changing your CV or goals, edit the labels or variants and run
+`uv run evals/jev_eval.py` (answers are cached; `-v field` lists every job with its score).
 
 **CV tailoring** (before the browser opens the job, 4 at a time). The model (a plain text call, no tools) gets your `cv.yaml` and the job description and returns a new
 YAML file. The rules it's given:

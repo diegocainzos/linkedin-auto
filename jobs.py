@@ -204,14 +204,16 @@ def tailor(company: str, title: str, jd: str, model: str, folder: str = "") -> t
 
 
 def jev(cv: str, title: str, company: str, jd: str) -> float:
-    """OpenRouter Decisions API: probability (0-1) that the CV is a real match for the job."""
+    """OpenRouter Decisions API: probability (0-1) that the job is in the CV's field. Seniority and years don't count:
+    senior jobs in the field are worth applying to. Tuned with evals/jev_eval.py (the "field" variant)."""
     body = {"model": JEV, "state": {"candidate_cv": cv, "job_offer": f"{title} at {company}\n\n{jd}"},
             "questions": {"compatible": {
                 "type": "noul",
-                "instructions": "Judging only by the candidate's CV against the job's requirements, is the candidate a real match for this job?",
-                "criteria": {"true": "The CV meets the job's must-have requirements: main tech stack, seniority or years "
-                                     "of experience, required languages, location or work permit.",
-                             "false": "The CV lacks at least one must-have requirement, or the job is in another field or seniority."}}}}
+                "instructions": "Is this job in the candidate's professional field? Ignore seniority, years of experience, "
+                                "degree requirements and the job title's level entirely: the candidate applies to senior roles too.",
+                "criteria": {"true": "Same field as the CV (e.g. both AI/ML, both data, both Python backend), even if some tools differ.",
+                             "false": "A different field: another core stack, hardware, industrial or non-software work, sales, "
+                                      "or a spoken language the CV doesn't list."}}}}
     req = Request("https://openrouter.ai/api/alpha/decisions", json.dumps(body).encode(),
                   {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
     with urlopen(req, timeout=60) as r:

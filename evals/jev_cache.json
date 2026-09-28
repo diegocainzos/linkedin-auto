@@ -1,0 +1,826 @@
+{
+ "https://www.linkedin.com/jobs/view/4472284210/": {
+  "current": 0.17,
+  "stack": 0.35,
+  "doable": 0.29,
+  "field": 0.75,
+  "overlap": 0.385,
+  "field2": 0.8
+ },
+ "https://www.linkedin.com/jobs/view/4472283267/": {
+  "current": 0.15,
+  "stack": 0.38,
+  "doable": 0.35,
+  "field": 0.8,
+  "overlap": 0.415,
+  "field2": 0.83
+ },
+ "https://www.linkedin.com/jobs/view/4464754429/": {
+  "current": 0.07,
+  "stack": 0.84,
+  "doable": 0.59,
+  "field": 0.98,
+  "overlap": 0.6275,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4465648732/": {
+  "current": 0.15,
+  "stack": 0.09,
+  "doable": 0.13,
+  "field": 0.24,
+  "overlap": 0.2575,
+  "field2": 0.29
+ },
+ "https://www.linkedin.com/jobs/view/4469431954/": {
+  "current": 0.02,
+  "stack": 0.04,
+  "doable": 0.06,
+  "field": 0.17,
+  "overlap": 0.05,
+  "field2": 0.15
+ },
+ "https://www.linkedin.com/jobs/view/4460008199/": {
+  "current": 0.33,
+  "stack": 0.89,
+  "doable": 0.78,
+  "field": 0.98,
+  "overlap": 0.76,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4471431716/": {
+  "current": 0.03,
+  "stack": 0.11,
+  "doable": 0.15,
+  "field": 0.28,
+  "overlap": 0.27,
+  "field2": 0.31
+ },
+ "https://www.linkedin.com/jobs/view/4468394895/": {
+  "current": 0.06,
+  "stack": 0.49,
+  "doable": 0.25,
+  "field": 0.94,
+  "overlap": 0.535,
+  "field2": 0.94
+ },
+ "https://www.linkedin.com/jobs/view/4465623679/": {
+  "current": 0.05,
+  "stack": 0.24,
+  "doable": 0.22,
+  "field": 0.89,
+  "overlap": 0.4075,
+  "field2": 0.78
+ },
+ "https://www.linkedin.com/jobs/view/4466198972/": {
+  "current": 0.26,
+  "stack": 0.91,
+  "doable": 0.82,
+  "field": 0.98,
+  "overlap": 0.8125,
+  "field2": 0.98
+ },
+ "https://www.linkedin.com/jobs/view/4467973571/": {
+  "current": 0.12,
+  "stack": 0.48,
+  "doable": 0.35,
+  "field": 0.93,
+  "overlap": 0.4925,
+  "field2": 0.94
+ },
+ "https://www.linkedin.com/jobs/view/4426943799/": {
+  "current": 0.13,
+  "stack": 0.56,
+  "doable": 0.53,
+  "field": 0.75,
+  "overlap": 0.6925,
+  "field2": 0.83
+ },
+ "https://www.linkedin.com/jobs/view/4469329085/": {
+  "current": 0.12,
+  "stack": 0.28,
+  "doable": 0.25,
+  "field": 0.75,
+  "overlap": 0.3875,
+  "field2": 0.82
+ },
+ "https://www.linkedin.com/jobs/view/4463481841/": {
+  "current": 0.16,
+  "stack": 0.6,
+  "doable": 0.53,
+  "field": 0.83,
+  "overlap": 0.5225,
+  "field2": 0.89
+ },
+ "https://www.linkedin.com/jobs/view/4470294943/": {
+  "current": 0.15,
+  "stack": 0.59,
+  "doable": 0.49,
+  "field": 0.77,
+  "overlap": 0.51,
+  "field2": 0.86
+ },
+ "https://www.linkedin.com/jobs/view/4467362927/": {
+  "current": 0.15,
+  "stack": 0.66,
+  "doable": 0.65,
+  "field": 0.84,
+  "overlap": 0.635,
+  "field2": 0.9
+ },
+ "https://www.linkedin.com/jobs/view/4467392735/": {
+  "current": 0.2,
+  "stack": 0.78,
+  "doable": 0.65,
+  "field": 0.93,
+  "overlap": 0.61,
+  "field2": 0.94
+ },
+ "https://www.linkedin.com/jobs/view/4469131909/": {
+  "current": 0.12,
+  "stack": 0.2,
+  "doable": 0.25,
+  "field": 0.64,
+  "overlap": 0.38,
+  "field2": 0.64
+ },
+ "https://www.linkedin.com/jobs/view/4469305074/": {
+  "current": 0.06,
+  "stack": 0.2,
+  "doable": 0.22,
+  "field": 0.72,
+  "overlap": 0.3225,
+  "field2": 0.83
+ },
+ "https://www.linkedin.com/jobs/view/4468218800/": {
+  "current": 0.13,
+  "stack": 0.77,
+  "doable": 0.62,
+  "field": 0.95,
+  "overlap": 0.605,
+  "field2": 0.96
+ },
+ "https://www.linkedin.com/jobs/view/4468996895/": {
+  "current": 0.03,
+  "stack": 0.32,
+  "doable": 0.16,
+  "field": 0.91,
+  "overlap": 0.4325,
+  "field2": 0.79
+ },
+ "https://www.linkedin.com/jobs/view/4464330206/": {
+  "current": 0.03,
+  "stack": 0.13,
+  "doable": 0.12,
+  "field": 0.72,
+  "overlap": 0.3225,
+  "field2": 0.12
+ },
+ "https://www.linkedin.com/jobs/view/4466273478/": {
+  "current": 0.46,
+  "stack": 0.89,
+  "doable": 0.9,
+  "field": 0.96,
+  "overlap": 0.96,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4469691697/": {
+  "current": 0.03,
+  "stack": 0.05,
+  "doable": 0.07,
+  "field": 0.25,
+  "overlap": 0.15,
+  "field2": 0.15
+ },
+ "https://www.linkedin.com/jobs/view/4464323868/": {
+  "current": 0.12,
+  "stack": 0.75,
+  "doable": 0.62,
+  "field": 0.97,
+  "overlap": 0.685,
+  "field2": 0.93
+ },
+ "https://www.linkedin.com/jobs/view/4468555051/": {
+  "current": 0.28,
+  "stack": 0.89,
+  "doable": 0.78,
+  "field": 0.98,
+  "overlap": 0.74,
+  "field2": 0.98
+ },
+ "https://www.linkedin.com/jobs/view/4465217858/": {
+  "current": 0.26,
+  "stack": 0.89,
+  "doable": 0.83,
+  "field": 0.98,
+  "overlap": 0.7975,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4464779815/": {
+  "current": 0.28,
+  "stack": 0.92,
+  "doable": 0.88,
+  "field": 0.98,
+  "overlap": 0.875,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4470915755/": {
+  "current": 0.79,
+  "stack": 0.93,
+  "doable": 0.88,
+  "field": 0.98,
+  "overlap": 0.94,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4470979243/": {
+  "current": 0.4,
+  "stack": 0.9,
+  "doable": 0.81,
+  "field": 0.98,
+  "overlap": 0.755,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4462505802/": {
+  "current": 0.33,
+  "stack": 0.83,
+  "doable": 0.74,
+  "field": 0.96,
+  "overlap": 0.7225,
+  "field2": 0.96
+ },
+ "https://www.linkedin.com/jobs/view/4461155781/": {
+  "current": 0.38,
+  "stack": 0.83,
+  "doable": 0.62,
+  "field": 0.98,
+  "overlap": 0.6675,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4462515751/": {
+  "current": 0.33,
+  "stack": 0.83,
+  "doable": 0.74,
+  "field": 0.96,
+  "overlap": 0.7225,
+  "field2": 0.96
+ },
+ "https://www.linkedin.com/jobs/view/4470961003/": {
+  "current": 0.51,
+  "stack": 0.35,
+  "doable": 0.45,
+  "field": 0.88,
+  "overlap": 0.5225,
+  "field2": 0.91
+ },
+ "https://www.linkedin.com/jobs/view/4458197869/": {
+  "current": 0.32,
+  "stack": 0.84,
+  "doable": 0.84,
+  "field": 0.97,
+  "overlap": 0.75,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4408872037/": {
+  "current": 0.11,
+  "stack": 0.88,
+  "doable": 0.81,
+  "field": 0.98,
+  "overlap": 0.7975,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4466690943/": {
+  "current": 0.37,
+  "stack": 0.55,
+  "doable": 0.42,
+  "field": 0.96,
+  "overlap": 0.5825,
+  "field2": 0.93
+ },
+ "https://www.linkedin.com/jobs/view/4467714284/": {
+  "current": 0.36,
+  "stack": 0.75,
+  "doable": 0.55,
+  "field": 0.97,
+  "overlap": 0.6975,
+  "field2": 0.9
+ },
+ "https://www.linkedin.com/jobs/view/4468537211/": {
+  "current": 0.19,
+  "stack": 0.85,
+  "doable": 0.68,
+  "field": 0.98,
+  "overlap": 0.7025,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4472704392/": {
+  "current": 0.06,
+  "stack": 0.21,
+  "doable": 0.22,
+  "field": 0.68,
+  "overlap": 0.3125,
+  "field2": 0.61
+ },
+ "https://www.linkedin.com/jobs/view/4439200145/": {
+  "current": 0.63,
+  "stack": 0.77,
+  "doable": 0.69,
+  "field": 0.93,
+  "overlap": 0.8,
+  "field2": 0.84
+ },
+ "https://www.linkedin.com/jobs/view/4463986392/": {
+  "current": 0.03,
+  "stack": 0.2,
+  "doable": 0.18,
+  "field": 0.73,
+  "overlap": 0.3025,
+  "field2": 0.86
+ },
+ "https://www.linkedin.com/jobs/view/4452573389/": {
+  "current": 0.2,
+  "stack": 0.67,
+  "doable": 0.68,
+  "field": 0.92,
+  "overlap": 0.5925,
+  "field2": 0.94
+ },
+ "https://www.linkedin.com/jobs/view/4467861177/": {
+  "current": 0.26,
+  "stack": 0.8,
+  "doable": 0.74,
+  "field": 0.97,
+  "overlap": 0.7225,
+  "field2": 0.96
+ },
+ "https://www.linkedin.com/jobs/view/4459512085/": {
+  "current": 0.06,
+  "stack": 0.33,
+  "doable": 0.28,
+  "field": 0.95,
+  "overlap": 0.5175,
+  "field2": 0.92
+ },
+ "https://www.linkedin.com/jobs/view/4472487594/": {
+  "current": 0.2,
+  "stack": 0.64,
+  "doable": 0.71,
+  "field": 0.92,
+  "overlap": 0.5975,
+  "field2": 0.94
+ },
+ "https://www.linkedin.com/jobs/view/4468703598/": {
+  "current": 0.07,
+  "stack": 0.73,
+  "doable": 0.64,
+  "field": 0.97,
+  "overlap": 0.6625,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4467391480/": {
+  "current": 0.04,
+  "stack": 0.25,
+  "doable": 0.23,
+  "field": 0.94,
+  "overlap": 0.415,
+  "field2": 0.93
+ },
+ "https://www.linkedin.com/jobs/view/4462787303/": {
+  "current": 0.09,
+  "stack": 0.37,
+  "doable": 0.31,
+  "field": 0.96,
+  "overlap": 0.4575,
+  "field2": 0.94
+ },
+ "https://www.linkedin.com/jobs/view/4451685307/": {
+  "current": 0.18,
+  "stack": 0.64,
+  "doable": 0.62,
+  "field": 0.94,
+  "overlap": 0.6275,
+  "field2": 0.93
+ },
+ "https://www.linkedin.com/jobs/view/4465062512/": {
+  "current": 0.28,
+  "stack": 0.71,
+  "doable": 0.53,
+  "field": 0.96,
+  "overlap": 0.6325,
+  "field2": 0.95
+ },
+ "https://www.linkedin.com/jobs/view/4462806461/": {
+  "current": 0.12,
+  "stack": 0.62,
+  "doable": 0.51,
+  "field": 0.96,
+  "overlap": 0.5925,
+  "field2": 0.95
+ },
+ "https://www.linkedin.com/jobs/view/4451138296/": {
+  "current": 0.04,
+  "stack": 0.12,
+  "doable": 0.15,
+  "field": 0.7,
+  "overlap": 0.2325,
+  "field2": 0.72
+ },
+ "https://www.linkedin.com/jobs/view/4441034360/": {
+  "current": 0.07,
+  "stack": 0.13,
+  "doable": 0.13,
+  "field": 0.77,
+  "overlap": 0.245,
+  "field2": 0.73
+ },
+ "https://www.linkedin.com/jobs/view/4406161146/": {
+  "current": 0.09,
+  "stack": 0.18,
+  "doable": 0.18,
+  "field": 0.73,
+  "overlap": 0.325,
+  "field2": 0.58
+ },
+ "https://www.linkedin.com/jobs/view/4461737753/": {
+  "current": 0.02,
+  "stack": 0.09,
+  "doable": 0.07,
+  "field": 0.55,
+  "overlap": 0.2025,
+  "field2": 0.55
+ },
+ "https://www.linkedin.com/jobs/view/4463348541/": {
+  "current": 0.03,
+  "stack": 0.09,
+  "doable": 0.09,
+  "field": 0.73,
+  "overlap": 0.2575,
+  "field2": 0.13
+ },
+ "https://www.linkedin.com/jobs/view/4471898471/": {
+  "current": 0.02,
+  "stack": 0.24,
+  "doable": 0.23,
+  "field": 0.76,
+  "overlap": 0.3025,
+  "field2": 0.87
+ },
+ "https://www.linkedin.com/jobs/view/4471341738/": {
+  "current": 0.11,
+  "stack": 0.27,
+  "doable": 0.25,
+  "field": 0.81,
+  "overlap": 0.4075,
+  "field2": 0.84
+ },
+ "https://www.linkedin.com/jobs/view/4465527592/": {
+  "current": 0.05,
+  "stack": 0.23,
+  "doable": 0.25,
+  "field": 0.8,
+  "overlap": 0.3025,
+  "field2": 0.84
+ },
+ "https://www.linkedin.com/jobs/view/4429661268/": {
+  "current": 0.12,
+  "stack": 0.17,
+  "doable": 0.2,
+  "field": 0.77,
+  "overlap": 0.275,
+  "field2": 0.82
+ },
+ "https://www.linkedin.com/jobs/view/4471890406/": {
+  "current": 0.14,
+  "stack": 0.32,
+  "doable": 0.35,
+  "field": 0.88,
+  "overlap": 0.4875,
+  "field2": 0.84
+ },
+ "https://www.linkedin.com/jobs/view/4470847720/": {
+  "current": 0.03,
+  "stack": 0.08,
+  "doable": 0.09,
+  "field": 0.47,
+  "overlap": 0.2325,
+  "field2": 0.11
+ },
+ "https://www.linkedin.com/jobs/view/4469310189/": {
+  "current": 0.04,
+  "stack": 0.12,
+  "doable": 0.13,
+  "field": 0.57,
+  "overlap": 0.2525,
+  "field2": 0.22
+ },
+ "https://www.linkedin.com/jobs/view/4469971519/": {
+  "current": 0.04,
+  "stack": 0.11,
+  "doable": 0.12,
+  "field": 0.48,
+  "overlap": 0.24,
+  "field2": 0.43
+ },
+ "https://www.linkedin.com/jobs/view/4471380397/": {
+  "current": 0.02,
+  "stack": 0.25,
+  "doable": 0.21,
+  "field": 0.74,
+  "overlap": 0.2975,
+  "field2": 0.85
+ },
+ "https://www.linkedin.com/jobs/view/4466683216/": {
+  "current": 0.04,
+  "stack": 0.06,
+  "doable": 0.07,
+  "field": 0.16,
+  "overlap": 0.21,
+  "field2": 0.03
+ },
+ "https://www.linkedin.com/jobs/view/4276934339/": {
+  "current": 0.02,
+  "stack": 0.04,
+  "doable": 0.05,
+  "field": 0.12,
+  "overlap": 0.1175,
+  "field2": 0.03
+ },
+ "https://www.linkedin.com/jobs/view/4431207755/": {
+  "current": 0.22,
+  "stack": 0.15,
+  "doable": 0.21,
+  "field": 0.53,
+  "overlap": 0.3225,
+  "field2": 0.09
+ },
+ "https://www.linkedin.com/jobs/view/4463982114/": {
+  "current": 0.03,
+  "stack": 0.06,
+  "doable": 0.08,
+  "field": 0.22,
+  "overlap": 0.215,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4459536256/": {
+  "current": 0.02,
+  "stack": 0.03,
+  "doable": 0.04,
+  "field": 0.09,
+  "overlap": 0.02,
+  "field2": 0.03
+ },
+ "https://www.linkedin.com/jobs/view/4464331604/": {
+  "current": 0.01,
+  "stack": 0.02,
+  "doable": 0.02,
+  "field": 0.04,
+  "overlap": 0.0075,
+  "field2": 0.02
+ },
+ "https://www.linkedin.com/jobs/view/4461135348/": {
+  "current": 0.03,
+  "stack": 0.05,
+  "doable": 0.07,
+  "field": 0.15,
+  "overlap": 0.1775,
+  "field2": 0.04
+ },
+ "https://www.linkedin.com/jobs/view/4467713321/": {
+  "current": 0.02,
+  "stack": 0.08,
+  "doable": 0.07,
+  "field": 0.21,
+  "overlap": 0.2425,
+  "field2": 0.04
+ },
+ "https://www.linkedin.com/jobs/view/4467968124/": {
+  "current": 0.02,
+  "stack": 0.07,
+  "doable": 0.06,
+  "field": 0.22,
+  "overlap": 0.2075,
+  "field2": 0.04
+ },
+ "https://www.linkedin.com/jobs/view/4464461762/": {
+  "current": 0.06,
+  "stack": 0.1,
+  "doable": 0.13,
+  "field": 0.31,
+  "overlap": 0.2375,
+  "field2": 0.1
+ },
+ "https://www.linkedin.com/jobs/view/4467710308/": {
+  "current": 0.02,
+  "stack": 0.09,
+  "doable": 0.09,
+  "field": 0.27,
+  "overlap": 0.2675,
+  "field2": 0.04
+ },
+ "https://www.linkedin.com/jobs/view/4466285041/": {
+  "current": 0.02,
+  "stack": 0.07,
+  "doable": 0.07,
+  "field": 0.23,
+  "overlap": 0.2075,
+  "field2": 0.04
+ },
+ "https://www.linkedin.com/jobs/view/4459167507/": {
+  "current": 0.02,
+  "stack": 0.06,
+  "doable": 0.06,
+  "field": 0.39,
+  "overlap": 0.185,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4460488739/": {
+  "current": 0.03,
+  "stack": 0.08,
+  "doable": 0.07,
+  "field": 0.26,
+  "overlap": 0.205,
+  "field2": 0.04
+ },
+ "https://www.linkedin.com/jobs/view/4458726402/": {
+  "current": 0.02,
+  "stack": 0.04,
+  "doable": 0.05,
+  "field": 0.23,
+  "overlap": 0.105,
+  "field2": 0.04
+ },
+ "https://www.linkedin.com/jobs/view/4464348460/": {
+  "current": 0.06,
+  "stack": 0.11,
+  "doable": 0.12,
+  "field": 0.29,
+  "overlap": 0.2975,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4463862242/": {
+  "current": 0.03,
+  "stack": 0.09,
+  "doable": 0.1,
+  "field": 0.38,
+  "overlap": 0.28,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4462805772/": {
+  "current": 0.06,
+  "stack": 0.07,
+  "doable": 0.1,
+  "field": 0.29,
+  "overlap": 0.125,
+  "field2": 0.06
+ },
+ "https://www.linkedin.com/jobs/view/4469684709/": {
+  "current": 0.08,
+  "stack": 0.14,
+  "doable": 0.15,
+  "field": 0.56,
+  "overlap": 0.3075,
+  "field2": 0.11
+ },
+ "https://www.linkedin.com/jobs/view/4464323546/": {
+  "current": 0.05,
+  "stack": 0.15,
+  "doable": 0.17,
+  "field": 0.46,
+  "overlap": 0.28,
+  "field2": 0.13
+ },
+ "https://www.linkedin.com/jobs/view/4471865670/": {
+  "current": 0.03,
+  "stack": 0.06,
+  "doable": 0.06,
+  "field": 0.3,
+  "overlap": 0.1475,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4470486151/": {
+  "current": 0.03,
+  "stack": 0.07,
+  "doable": 0.07,
+  "field": 0.22,
+  "overlap": 0.2025,
+  "field2": 0.06
+ },
+ "https://www.linkedin.com/jobs/view/4469687259/": {
+  "current": 0.03,
+  "stack": 0.05,
+  "doable": 0.06,
+  "field": 0.14,
+  "overlap": 0.21,
+  "field2": 0.03
+ },
+ "https://www.linkedin.com/jobs/view/4469757629/": {
+  "current": 0.03,
+  "stack": 0.07,
+  "doable": 0.08,
+  "field": 0.23,
+  "overlap": 0.22,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4468397999/": {
+  "current": 0.05,
+  "stack": 0.1,
+  "doable": 0.08,
+  "field": 0.25,
+  "overlap": 0.2675,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4465641987/": {
+  "current": 0.03,
+  "stack": 0.06,
+  "doable": 0.07,
+  "field": 0.2,
+  "overlap": 0.18,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4456166490/": {
+  "current": 0.05,
+  "stack": 0.56,
+  "doable": 0.37,
+  "field": 0.92,
+  "overlap": 0.515,
+  "field2": 0.93
+ },
+ "https://www.linkedin.com/jobs/view/4468267512/": {
+  "current": 0.37,
+  "stack": 0.46,
+  "doable": 0.55,
+  "field": 0.87,
+  "overlap": 0.5625,
+  "field2": 0.71
+ },
+ "https://www.linkedin.com/jobs/view/4463006678/": {
+  "current": 0.01,
+  "stack": 0.03,
+  "doable": 0.03,
+  "field": 0.08,
+  "overlap": 0.035,
+  "field2": 0.05
+ },
+ "https://www.linkedin.com/jobs/view/4472720318/": {
+  "current": 0.17,
+  "stack": 0.78,
+  "doable": 0.66,
+  "field": 0.97,
+  "overlap": 0.6325,
+  "field2": 0.96
+ },
+ "https://www.linkedin.com/jobs/view/4466289112/": {
+  "current": 0.07,
+  "stack": 0.26,
+  "doable": 0.17,
+  "field": 0.93,
+  "overlap": 0.46,
+  "field2": 0.55
+ },
+ "https://www.linkedin.com/jobs/view/4461142387/": {
+  "current": 0.06,
+  "stack": 0.76,
+  "doable": 0.45,
+  "field": 0.98,
+  "overlap": 0.52,
+  "field2": 0.97
+ },
+ "https://www.linkedin.com/jobs/view/4468165175/": {
+  "current": 0.44,
+  "stack": 0.79,
+  "doable": 0.7,
+  "field": 0.98,
+  "overlap": 0.6925,
+  "field2": 0.98
+ },
+ "https://www.linkedin.com/jobs/view/4452267379/": {
+  "current": 0.1,
+  "stack": 0.59,
+  "doable": 0.41,
+  "field": 0.95,
+  "overlap": 0.55,
+  "field2": 0.83
+ },
+ "https://www.linkedin.com/jobs/view/4468147592/": {
+  "current": 0.44,
+  "stack": 0.79,
+  "doable": 0.71,
+  "field": 0.98,
+  "overlap": 0.7025,
+  "field2": 0.98
+ },
+ "https://www.linkedin.com/jobs/view/4463323658/": {
+  "current": 0.07,
+  "stack": 0.24,
+  "doable": 0.17,
+  "field": 0.95,
+  "overlap": 0.49,
+  "field2": 0.18
+ },
+ "https://www.linkedin.com/jobs/view/4463109498/": {
+  "current": 0.61,
+  "stack": 0.9,
+  "doable": 0.81,
+  "field": 0.98,
+  "overlap": 0.745,
+  "field2": 0.97
+ }
+}
