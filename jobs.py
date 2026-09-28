@@ -510,7 +510,7 @@ def preflight(a) -> None:
         problems.append(f"not logged in with {name} yet: run `uv run jobs.py login --browser {name}` once")
     for f in (BASE_CV, ANSWERS):
         if not f.exists():
-            problems.append(f"{f.name} is missing")
+            problems.append(f"{f.name} is missing: copy {f.stem}.example{f.suffix} to {f.name} and fill in your own")
     base = ROOT / "base_cv.pdf"
     if BASE_CV.exists() and (not base.exists() or base.stat().st_mtime < BASE_CV.stat().st_mtime):
         print("preflight: cv.yaml changed, re-rendering base_cv.pdf")

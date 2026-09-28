@@ -39,10 +39,10 @@ jobs.py run
 |---|---|---|
 | `jobs.py` | Everything: the `run`, `login` and `tailor` commands, the pipeline, the agent, its tools and its prompt | Rarely |
 | `tests/` | `uv run pytest -q`: no network, browser or API keys (saved public job pages, fake models) | When you change `jobs.py` |
-| `cv.yaml` | Your base CV in RenderCV format. Its `design`, `locale` and `settings` are kept in every tailored CV | **Yes** |
-| `answers.md` | Answers to Easy Apply questions. The agent only uses this file and `cv.yaml` | **Yes** |
+| `cv.yaml` | Your base CV in RenderCV format, from `cv.example.yaml`. Its `design`, `locale` and `settings` are kept in every tailored CV. Gitignored | **Yes** |
+| `answers.md` | Answers to Easy Apply questions, from `answers.example.md`. The agent adds the questions it answered on its own. Gitignored | **Yes** |
 | `search.toml` | Default search: position, location, limits, filters, agent, browser | **Yes** |
-| `base_cv.pdf` | Untailored CV, uploaded when tailoring fails. Regenerate it after editing `cv.yaml` | No |
+| `base_cv.pdf` | Untailored CV, uploaded when tailoring fails. `run` re-renders it when `cv.yaml` changes. Gitignored | No |
 | `docs/filters.md` | Every search filter and its LinkedIn URL code | — |
 | `applications/<company-title-jobid>/` | Per job: `CV.yaml` and `CV.pdf` | Generated |
 | `.env` | API keys and SMTP settings (see [Setup](#setup-once)) | **Yes** |
@@ -71,9 +71,10 @@ uv run jobs.py login --browser brave      # Brave, in its own profile
 
 Then:
 
-1. Put your CV in `cv.yaml` (RenderCV YAML) and check it renders:
+1. `cp cv.example.yaml cv.yaml` and `cp answers.example.md answers.md` (both gitignored: they hold your data).
+   Put your CV in `cv.yaml` (RenderCV YAML) and check it renders:
    `uv run rendercv render cv.yaml --pdf-path base_cv.pdf -nomd -nohtml -nopng`
-2. Fill every `TODO` in `answers.md`.
+2. Replace every value in `answers.md` with yours.
 3. Optional: `cp .env.example .env` (gitignored) and fill it in. A variable already exported in your shell wins over `.env`:
    ```bash
    OPENROUTER_API_KEY=sk-or-...        # required, unless exported: the agent, CV tailoring and Jev

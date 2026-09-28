@@ -1,0 +1,57 @@
+# Copy to cv.yaml (gitignored) and replace everything with your own CV. RenderCV v2 format: https://docs.rendercv.com
+cv:
+  name: Jane Doe
+  location: Valencia, Spain
+  email: jane.doe@example.com
+  phone: +34-600-000-000
+  website: https://example.com
+  social_networks:
+    - network: LinkedIn
+      username: janedoe
+    - network: GitHub
+      username: janedoe
+  sections:
+    Professional Summary:
+      - >-
+        AI Engineer building LLM and machine learning systems in Python, from prototypes to
+        production services on Docker and Linux.
+    Experience:
+      - company: Example Corp
+        position: AI Engineer
+        start_date: 2025-01
+        end_date: present
+        location: Valencia, Spain · Hybrid
+        highlights:
+          - >-
+            Built a retrieval-augmented (RAG) assistant over internal documents with LangChain
+            and a locally served open-weights model.
+          - >-
+            Deployed model serving with vLLM and Docker on on-premise GPUs.
+      - company: Example University
+        position: Data Analyst Intern
+        start_date: 2023-10
+        end_date: 2024-06
+        location: Valencia, Spain
+        highlights:
+          - Cleaned and analyzed datasets with Python and pandas and wrote the reports.
+    Projects:
+      - name: News NLP Pipeline
+        date: 2024
+        summary: '[GitHub](https://github.com/janedoe/news-nlp)'
+        highlights:
+          - Ingests, transforms and classifies news articles with Python, AWS and Docker.
+    Education:
+      - institution: Example University
+        area: Computer Science
+        degree: BS
+        start_date: 2020-09
+        end_date: 2024-06
+        location: Valencia, Spain
+    Skills:
+      - label: AI and Machine Learning
+        details: PyTorch, Hugging Face, scikit-learn, NLP, RAG, LangChain
+      - label: Engineering
+        details: Python, Docker, PostgreSQL, REST, Linux, Git, AWS
+    Languages:
+      - label: Proficiency
+        details: Native Spanish · C1 English

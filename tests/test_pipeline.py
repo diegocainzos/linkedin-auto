@@ -22,8 +22,10 @@ def sandbox(tmp_path, monkeypatch):
     for name, f in {"DB": "jobs.db", "EVENTS": "run.log", "ISSUES": "issues.log", "LOG": "applied.jsonl"}.items():
         monkeypatch.setattr(jobs, name, tmp_path / f)
     monkeypatch.setattr(jobs, "APPS", tmp_path / "applications")
-    (tmp_path / "answers.md").write_text(jobs.ANSWERS.read_text())  # the agent writes to it
+    # the examples, not your files: the tests run on a fresh clone, and the agent writes to answers.md
+    (tmp_path / "answers.md").write_text((jobs.ROOT / "answers.example.md").read_text())
     monkeypatch.setattr(jobs, "ANSWERS", tmp_path / "answers.md")
+    monkeypatch.setattr(jobs, "BASE_CV", jobs.ROOT / "cv.example.yaml")
     monkeypatch.setattr(jobs, "DELAY", 0)
 
 

@@ -13,3 +13,9 @@ issues.log
 
 .env
 jobs.db
+
+# your data: the repo has cv.example.yaml and answers.example.md
+cv.yaml
+cv_es.yaml
+answers.md
+base_cv.pdf
