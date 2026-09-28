@@ -177,7 +177,7 @@ def render(yml: Path, pdf: Path) -> subprocess.CompletedProcess:
 
 def tailor(company: str, title: str, jd: str, model: str, folder: str = "") -> tuple[bool, str]:
     """Tailored CV for one job. Returns (ok, message); the message's last line is always a PDF path to upload."""
-    out = APPS / slug(folder or f"{company}-{title}")
+    out = APPS / (folder or slug(f"{company}-{title}"))
     out.mkdir(parents=True, exist_ok=True)
     yml, pdf, error = out / "CV.yaml", out / "CV.pdf", ""
     say(f"tailoring CV: {company} — {title}")
@@ -232,7 +232,7 @@ def prepare(j: dict, model: str) -> dict | None:
         return None
     say(f"fit {'?' if p is None else f'{p:.2f}'}: {j['company']} — {j['title']}")
     # the job id in the folder: the same title at the same company can be tailored twice at once
-    pdf = tailor(j["company"], j["title"], j["jd"] or "", model, f"{j['company']}-{j['title']}-{j['url'].split('/')[-2]}")[1]
+    pdf = tailor(j["company"], j["title"], j["jd"] or "", model, f"{slug(j['company'] + '-' + j['title'])}-{j['url'].split('/')[-2]}")[1]
     pdf = pdf.splitlines()[-1]
     save(j["url"], status="ready", fit=p, pdf=pdf)
     return j | {"status": "ready", "fit": p, "pdf": pdf}

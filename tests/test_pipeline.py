@@ -209,6 +209,18 @@ def test_prepare_same_title_twice_gets_two_folders(monkeypatch):
     assert len(set(folders)) == 2
 
 
+def test_prepare_long_title_keeps_the_job_id(monkeypatch, tmp_path):
+    """slug() cuts at 60 characters: the id must survive a long title, or two such jobs share a folder again."""
+    monkeypatch.setattr(jobs, "jev", lambda *a: 0.8)
+    monkeypatch.setattr(jobs, "ask", lambda prompt, model: "cv: {}")
+    monkeypatch.setattr(jobs, "render", lambda yml, pdf: (pdf.write_text("pdf"), SimpleNamespace(returncode=0))[1])
+    monkeypatch.setattr(jobs, "ROOT", tmp_path)
+    long = {"company": "Octopus Energy", "title": "Data & Analytics Engineer Junior (Prácticas) en Valencia, España"}
+    a = jobs.prepare(job(4470961003) | long, "m")
+    b = jobs.prepare(job(4470961004) | long, "m")
+    assert a["pdf"] != b["pdf"] and "4470961003" in a["pdf"] and "4470961004" in b["pdf"]
+
+
 def test_prepare_applies_when_jev_is_down(monkeypatch):
     def down(*a):
         raise OSError("alpha API down")
