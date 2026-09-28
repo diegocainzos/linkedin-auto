@@ -5,10 +5,11 @@ Applies to LinkedIn **Easy Apply** jobs automatically, with a CV tailored to eac
 A [LangChain](https://docs.langchain.com) agent, running an [OpenRouter](https://openrouter.ai) model (`~deepseek/deepseek-flash-latest` by default, see [Model](#model)), drives your own browser (Chrome by default; Brave, Edge or any Chromium-based one) through Playwright MCP. It searches
 LinkedIn with your filters, then for each job it:
 
-1. reads the job description,
-2. generates a tailored CV from your `cv.yaml` (a separate text-only call to the same agent, rendered with RenderCV),
+1. reads the job description and asks **Jev** (OpenRouter's decision model) whether it matches your CV; if not, it skips it,
+2. generates a tailored CV from your `cv.yaml` (a separate text-only call to the same model, rendered with RenderCV),
 3. opens Easy Apply, uploads that PDF, fills the form from `answers.md`, submits,
-4. logs the result in `applied.jsonl`, and reports any problem it hits to `issues.log`.
+4. logs the result in `jobs.db` (SQLite), and reports any problem it hits to `issues.log`,
+5. for strong matches, finds the "Meet the hiring team" person's email (Hunter) and emails them (experimental, see [Hiring team email](#hiring-team-email)).
 
 It stops when it reaches `--max-applies`, `--max-time` or `--max-pages`, or when the results run out.
 
@@ -17,8 +18,10 @@ Quick help: `uv run jobs.py -h` (see [Command reference](#command-reference)).
 ```
 jobs.py run ──► LangChain agent (OpenRouter model) ──► Playwright MCP (npx) ──► your browser (.browser-profile/<browser>/)
                   │  tools, in-process:
+                  ├─► check_fit ──► Jev (OpenRouter Decisions API) ──► APPLY / SKIP
                   ├─► tailor_cv ──► model, text only ──► cv yaml ──► rendercv ──► CV.pdf
-                  ├─► log_job ──► applied.jsonl  (returns LIMIT REACHED to stop)
+                  ├─► log_job ──► jobs.db  (returns LIMIT REACHED to stop)
+                  │        └─► strong match: Hunter email ──► model writes email ──► SMTP (only saved without SMTP)
                   └─► report_issue ──► issues.log
 ```
 
@@ -33,7 +36,9 @@ jobs.py run ──► LangChain agent (OpenRouter model) ──► Playwright MC
 | `base_cv.pdf` | Untailored CV, uploaded when tailoring fails. Regenerate it after editing `cv.yaml` | No |
 | `docs/filters.md` | Every search filter and its LinkedIn URL code | — |
 | `applications/<company-title>/` | Per job: `CV.yaml` and `CV.pdf` | Generated |
-| `applied.jsonl` | One line per processed job: `ts, company, title, url, status, note` | Generated |
+| `.env` | API keys and SMTP settings (see [Setup](#setup-once)) | **Yes** |
+| `jobs.db` | SQLite, one row per job: status, note, Jev's fit, hiring team name, job description, tailored CV YAML, contact email, email subject/body/sent time | Generated |
+| `applied.jsonl` | The old log. Imported into `jobs.db` when it's created, unused after that | Old |
 | `.browser-profile/<browser>/` | One profile per browser, holding your LinkedIn login | Generated |
 | `issues.log` | Problems the agent reported, all runs: `date time problem  job-url` | Generated |
 | `run.log` | Every event of every run, the source of the live log | Generated |
@@ -44,7 +49,7 @@ Everything generated is gitignored. It contains personal data, so keep it that w
 ## Setup (once)
 
 Requirements: macOS, `uv`, `node`/`npx`, a Chromium-based browser (Chrome, Brave, Edge...), and an
-[OpenRouter API key](https://openrouter.ai/keys) in `OPENROUTER_API_KEY`. Nothing gets downloaded for the browser: it uses the one you have.
+[OpenRouter API key](https://openrouter.ai/keys) in `OPENROUTER_API_KEY` (exported, or in `.env`). Nothing gets downloaded for the browser: it uses the one you have.
 
 ```bash
 uv sync                                   # langchain, langchain-openrouter, rendercv
@@ -60,8 +65,18 @@ Then:
 1. Put your CV in `cv.yaml` (RenderCV YAML) and check it renders:
    `uv run rendercv render cv.yaml --pdf-path base_cv.pdf -nomd -nohtml -nopng`
 2. Fill every `TODO` in `answers.md`.
+3. Optional: `cp .env.example .env` (gitignored) and fill it in. A variable already exported in your shell wins over `.env`:
+   ```bash
+   OPENROUTER_API_KEY=sk-or-...        # required, unless exported: the agent, CV tailoring and Jev
+   HUNTER_API_KEY=...                  # hiring team email lookup; without it no emails
+   SMTP_HOST=smtp.gmail.com            # without it emails are written and saved in jobs.db, not sent
+   SMTP_PORT=465                       # 465 = SSL, anything else = STARTTLS
+   SMTP_USER=you@gmail.com
+   SMTP_PASSWORD=...                   # Gmail: an app password
+   SMTP_FROM=you@gmail.com             # optional, defaults to SMTP_USER
+   ```
 
-**Credentials:** none are stored in the project (the OpenRouter key comes from the environment). The login lives in the browser profile as cookies,
+**Credentials:** only what you export or put in `.env` (gitignored). The login lives in the browser profile as cookies,
 the same as a normal browser. If LinkedIn logs you out, or shows a captcha or security check, the agent
 stops and says so. Re-run `uv run jobs.py login` (with the same `--browser`) to log in again.
 
@@ -90,7 +105,7 @@ The default, `~deepseek/deepseek-flash-latest`, always points at DeepSeek's late
 the browser, tailors the CVs and fills `answers.md`.
 
 The agent is LangChain's `create_agent` with the Playwright MCP tools (through `langchain.mcp.MCPAdapter`) plus
-three of its own: `tailor_cv`, `log_job` and `report_issue`. It has no shell and no file access.
+four of its own: `check_fit`, `tailor_cv`, `log_job` and `report_issue`. It has no shell and no file access.
 
 ## Running
 
@@ -258,7 +273,7 @@ model, browser and output:
 
 Every option's default comes from search.toml ([now: ...] shows it); a flag overrides it for this run.
 Stops at whichever comes first: --max-applies, --max-time, --max-pages, or no more results.
-Ctrl+C stops at any time; processed jobs are skipped next run (applied.jsonl).
+Ctrl+C stops at any time; processed jobs are skipped next run (jobs.db).
 
 examples:
   uv run jobs.py run "python developer" -l Valencia
@@ -289,7 +304,12 @@ options:
 ## How it behaves
 
 **Choosing jobs.** It takes every Easy Apply job in the results, in order, skipping any job that's
-already logged or marked "Applied". There's no fit scoring: narrow the search with filters.
+already logged or marked "Applied". For each one it calls `check_fit`, which sends your `cv.yaml` and the job
+description to Jev (`typesafe/jev-1.13`, [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev-tutorial),
+~$0.00002 a call) with one yes/no question: does the CV meet the job's must-haves (stack, seniority, languages,
+location or work permit)? Jev answers with a probability. Below 0.5 (`FIT_APPLY` in `jobs.py`) the job is logged
+as `skipped` with note `not compatible (fit 0.23)`. If the API fails (it's alpha), the job is applied to anyway.
+The fit of every job is in `jobs.db`: raise the threshold if it lets bad jobs through.
 
 **CV tailoring** (`tailor_cv` tool). The model (a plain text call, no tools) gets your `cv.yaml` and the job description and returns a new
 YAML file. The rules it's given:
@@ -316,20 +336,36 @@ unticks "Follow company" before submitting.
 surveys...) with Escape or their close button, and handles native browser dialogs. If it's stuck on the same
 job after 3 attempts, it logs that job as `failed` and moves on.
 
-**Guardrails in the prompt.** The agent must never pay for anything, message anyone, or edit your
+**Guardrails in the prompt.** The agent must never pay for anything, message anyone on LinkedIn, or edit your
 profile, and it stops on a login page or captcha.
+
+### Hiring team email
+
+Experimental. After applying, `log_job` checks the job's row: if Jev's fit is at least 0.9 (`FIT_EMAIL`)
+and the job showed someone in "Meet the hiring team", it asks Hunter's Email Finder for that person's email
+at the company. Only a verified email (status `valid` or score ≥ 90) is used; otherwise nothing happens. The
+model then writes the email (a plain text call): the job's language, at most 300 characters, plain prose
+with no lists or special characters, one or two real facts from your CV, a request for a short call. The
+subject is `<job title> - <your name>` and the tailored PDF is attached.
+
+Without `SMTP_HOST` in `.env` the email is only saved in `jobs.db`. Nobody is emailed twice: an address
+that already got an email is skipped. Read what was written:
+
+```bash
+sqlite3 jobs.db "SELECT company, contact_email, email_body, email_sent FROM jobs WHERE email_body IS NOT NULL"
+```
 
 ## Improving over time
 
 ```bash
 # Which questions blocked applications? Add the answers to answers.md
-grep '"skipped"' applied.jsonl | python3 -c "import sys,json; [print(json.loads(l)['note']) for l in sys.stdin]"
+sqlite3 jobs.db "SELECT note FROM jobs WHERE status = 'skipped'"
 
-# What got applied
-grep '"applied"' applied.jsonl | python3 -c "import sys,json; [print(e['company'],'-',e['title']) for e in map(json.loads,sys.stdin)]"
+# What got applied, and how well it fit
+sqlite3 jobs.db "SELECT company, title, fit FROM jobs WHERE status = 'applied' ORDER BY ts"
 ```
 
-To retry a job, delete its line from `applied.jsonl`.
+To retry a job, delete its row: `sqlite3 jobs.db "DELETE FROM jobs WHERE url LIKE '%/123/'"`.
 
 ## Risks and limits
 
@@ -340,7 +376,9 @@ To retry a job, delete its line from `applied.jsonl`.
 - **Easy Apply only.** Jobs that apply on the company's own site are filtered out by `f_AL=true`.
 - **One page isn't checked.** Tailored CVs are asked to fit one page, but nothing verifies it. Check
   with `pdfinfo applications/*/CV.pdf | grep Pages`.
-- **Cost.** Each job is many model calls (every browser step) plus one tailoring call, billed to your OpenRouter account.
+- **Cold email.** Emails go out automatically once SMTP is set. Read the first ones in `jobs.db` before
+  adding `SMTP_HOST`.
+- **Cost.** Each job is many model calls (every browser step) plus one tailoring call and one Jev call, billed to your OpenRouter account.
 - **Long runs.** Old page snapshots are cleared from the agent's context to keep it small; the `log_job` results stay.
 
 ## Troubleshooting

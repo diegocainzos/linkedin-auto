@@ -10,3 +10,6 @@ rendercv_output/
 run.log
 logs/
 issues.log
+
+.env
+jobs.db
