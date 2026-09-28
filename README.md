@@ -5,10 +5,11 @@ Applies to LinkedIn **Easy Apply** jobs automatically, with a CV tailored to eac
 An agent CLI (`agy` with Gemini 3.8 Flash High by default; also `claude`, `codex` or `pi`, see [Agents](#agents)) drives your own browser (Chrome by default; Brave, Edge or any Chromium-based one) through Playwright MCP. It searches
 LinkedIn with your filters, then for each job it:
 
-1. reads the job description,
+1. reads the job description and asks **Jev** (OpenRouter's decision model) whether it matches your CV; if not, it skips it,
 2. generates a tailored CV from your `cv.yaml` (a separate text-only call to the same agent, rendered with RenderCV),
 3. opens Easy Apply, uploads that PDF, fills the form from `answers.md`, submits,
-4. logs the result in `applied.jsonl`, and reports any problem it hits to `issues.log`.
+4. logs the result in `jobs.db` (SQLite), and reports any problem it hits to `issues.log`,
+5. for strong matches, finds the "Meet the hiring team" person's email (Hunter) and emails them (experimental, see [Hiring team email](#hiring-team-email)).
 
 It stops when it reaches `--max-applies`, `--max-time` or `--max-pages`, or when the results run out.
 
@@ -17,8 +18,10 @@ Quick help: `uv run jobs.py -h` (see [Command reference](#command-reference)).
 ```
 jobs.py run ──► agent CLI ──► linkedin_playwright MCP = jobs.py mcp ──► your browser (.browser-profile/<browser>/)
                   │
+                  ├─► uv run jobs.py fit ──► Jev (OpenRouter Decisions API) ──► APPLY / SKIP
                   ├─► uv run jobs.py tailor ──► agent CLI, text only ──► cv yaml ──► rendercv ──► CV.pdf
-                  ├─► uv run jobs.py log ──► applied.jsonl  (prints LIMIT REACHED to stop)
+                  ├─► uv run jobs.py log ──► jobs.db  (prints LIMIT REACHED to stop)
+                  │        └─► strong match: Hunter email ──► agent writes email ──► SMTP (only saved without SMTP)
                   └─► uv run jobs.py issue ──► issues.log
 ```
 
@@ -26,14 +29,16 @@ jobs.py run ──► agent CLI ──► linkedin_playwright MCP = jobs.py mcp 
 
 | Path | What it is | You edit it? |
 |---|---|---|
-| `jobs.py` | Everything: the `run`, `login`, `tailor`, `log`, `issue` and `mcp` commands, and the agent prompt | Rarely |
+| `jobs.py` | Everything: the `run`, `login`, `fit`, `tailor`, `log`, `issue` and `mcp` commands, and the agent prompt | Rarely |
 | `cv.yaml` | Your base CV in RenderCV format. Its `design`, `locale` and `settings` are kept in every tailored CV | **Yes** |
 | `answers.md` | Answers to Easy Apply questions. The agent only uses this file and `cv.yaml` | **Yes** |
 | `search.toml` | Default search: position, location, limits, filters, agent, browser | **Yes** |
 | `base_cv.pdf` | Untailored CV, uploaded when tailoring fails. Regenerate it after editing `cv.yaml` | No |
 | `docs/filters.md` | Every search filter and its LinkedIn URL code | — |
 | `applications/<company-title>/` | Per job: `CV.yaml` and `CV.pdf` | Generated |
-| `applied.jsonl` | One line per processed job: `ts, company, title, url, status, note` | Generated |
+| `.env` | API keys and SMTP settings (see [Setup](#setup-once)) | **Yes** |
+| `jobs.db` | SQLite, one row per job: status, note, Jev's fit, hiring team name, job description, tailored CV YAML, contact email, email subject/body/sent time | Generated |
+| `applied.jsonl` | The old log. Imported into `jobs.db` when it's created, unused after that | Old |
 | `.browser-profile/<browser>/` | One profile per browser, holding your LinkedIn login | Generated |
 | `.run.json` | Start time, limits, agent and browser of the current run | Generated |
 | `issues.log` | Problems the agent reported, all runs: `date time problem  job-url` | Generated |
@@ -64,8 +69,18 @@ Then:
 1. Put your CV in `cv.yaml` (RenderCV YAML) and check it renders:
    `uv run rendercv render cv.yaml --pdf-path base_cv.pdf -nomd -nohtml -nopng`
 2. Fill every `TODO` in `answers.md`.
+3. Optional, create `.env` (gitignored) for the compatibility check and the hiring team email:
+   ```bash
+   OPENROUTER_API_KEY=sk-or-...        # Jev compatibility check; without it every job is applied to
+   HUNTER_API_KEY=...                  # hiring team email lookup; without it no emails
+   SMTP_HOST=smtp.gmail.com            # without it emails are written and saved in jobs.db, not sent
+   SMTP_PORT=465                       # 465 = SSL, anything else = STARTTLS
+   SMTP_USER=you@gmail.com
+   SMTP_PASSWORD=...                   # Gmail: an app password
+   SMTP_FROM=you@gmail.com             # optional, defaults to SMTP_USER
+   ```
 
-**Credentials:** none are stored in the project. The login lives in the browser profile as cookies,
+**Credentials:** only what you put in `.env` (gitignored). The login lives in the browser profile as cookies,
 the same as a normal browser. If LinkedIn logs you out, or shows a captcha or security check, the agent
 stops and says so. Re-run `uv run jobs.py login` (with the same `--browser`) to log in again.
 
@@ -206,6 +221,7 @@ positional arguments:
     login     log in to LinkedIn in the browser the agent uses (once per browser)
     tailor    write a CV for one job (the agent calls this)
     log       record a job's result (the agent calls this)
+    fit       ask Jev if a job matches the CV (the agent calls this)
     issue     report a problem during a run (the agent calls this)
     mcp       start the browser MCP (the agent CLI runs this)
 
@@ -275,7 +291,7 @@ agent, browser and output:
 
 Every option's default comes from search.toml ([now: ...] shows it); a flag overrides it for this run.
 Stops at whichever comes first: --max-applies, --max-time, --max-pages, or no more results.
-Ctrl+C stops at any time; processed jobs are skipped next run (applied.jsonl).
+Ctrl+C stops at any time; processed jobs are skipped next run (jobs.db).
 
 examples:
   uv run jobs.py run "python developer" -l Valencia
@@ -301,12 +317,18 @@ options:
 ```
 </details>
 
-`tailor`, `log`, `issue` and `mcp` are called by the agent, not by you; their `-h` says what they do.
+`fit`, `tailor`, `log`, `issue` and `mcp` are called by the agent, not by you; their `-h` says what they do.
 
 ## How it behaves
 
 **Choosing jobs.** It takes every Easy Apply job in the results, in order, skipping any job that's
-already logged or marked "Applied". There's no fit scoring: narrow the search with filters.
+already logged or marked "Applied". For each one it runs `jobs.py fit`, which sends your `cv.yaml` and the job
+description to Jev (`typesafe/jev-1.13`, [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev-tutorial),
+~$0.00002 a call) with one yes/no question: does the CV meet the job's must-haves (stack, seniority, languages,
+location or work permit)? Jev answers with a probability. Below 0.5 (`FIT_APPLY` in `jobs.py`) the job is logged
+as `skipped` with note `not compatible (fit 0.23)`. Without `OPENROUTER_API_KEY`, or if the API fails (it's
+alpha), the job is applied to anyway. The fit of every job is in `jobs.db`: raise the threshold if it lets bad
+jobs through.
 
 **CV tailoring** (`jobs.py tailor`). The agent (a text-only call, no tools) gets your `cv.yaml` and the job description and returns a new
 YAML file. The rules it's given:
@@ -333,20 +355,36 @@ unticks "Follow company" before submitting.
 surveys...) with Escape or their close button, and handles native browser dialogs. If it's stuck on the same
 job after 3 attempts, it logs that job as `failed` and moves on.
 
-**Guardrails in the prompt.** The agent must never pay for anything, message anyone, or edit your
+**Guardrails in the prompt.** The agent must never pay for anything, message anyone on LinkedIn, or edit your
 profile or the project files, and it stops on a login page or captcha.
+
+### Hiring team email
+
+Experimental. After applying, `jobs.py log` checks the job's row: if Jev's fit is at least 0.9 (`FIT_EMAIL`)
+and the job showed someone in "Meet the hiring team", it asks Hunter's Email Finder for that person's email
+at the company. Only a verified email (status `valid` or score ≥ 90) is used; otherwise nothing happens. The
+run's agent then writes the email (text-only call): the job's language, at most 300 characters, plain prose
+with no lists or special characters, one or two real facts from your CV, a request for a short call. The
+subject is `<job title> - <your name>` and the tailored PDF is attached.
+
+Without `SMTP_HOST` in `.env` the email is only saved in `jobs.db`. Nobody is emailed twice: an address
+that already got an email is skipped. Read what was written:
+
+```bash
+sqlite3 jobs.db "SELECT company, contact_email, email_body, email_sent FROM jobs WHERE email_body IS NOT NULL"
+```
 
 ## Improving over time
 
 ```bash
 # Which questions blocked applications? Add the answers to answers.md
-grep '"skipped"' applied.jsonl | python3 -c "import sys,json; [print(json.loads(l)['note']) for l in sys.stdin]"
+sqlite3 jobs.db "SELECT note FROM jobs WHERE status = 'skipped'"
 
-# What got applied
-grep '"applied"' applied.jsonl | python3 -c "import sys,json; [print(e['company'],'-',e['title']) for e in map(json.loads,sys.stdin)]"
+# What got applied, and how well it fit
+sqlite3 jobs.db "SELECT company, title, fit FROM jobs WHERE status = 'applied' ORDER BY ts"
 ```
 
-To retry a job, delete its line from `applied.jsonl`.
+To retry a job, delete its row: `sqlite3 jobs.db "DELETE FROM jobs WHERE url LIKE '%/123/'"`.
 
 ## Risks and limits
 
@@ -361,6 +399,8 @@ To retry a job, delete its line from `applied.jsonl`.
 - **Easy Apply only.** Jobs that apply on the company's own site are filtered out by `f_AL=true`.
 - **One page isn't checked.** Tailored CVs are asked to fit one page, but nothing verifies it. Check
   with `pdfinfo applications/*/CV.pdf | grep Pages`.
+- **Cold email.** Emails go out automatically once SMTP is set. Read the first ones in `jobs.db` before
+  adding `SMTP_HOST`.
 - **Quota.** Each job is one long agent turn plus one tailoring call, against the chosen agent's quota or API bill.
 
 ## Troubleshooting

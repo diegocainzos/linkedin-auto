@@ -2,14 +2,17 @@
 
   uv run jobs.py login --browser brave                                    # once per browser
   uv run jobs.py run "python developer" -l Valencia --max-applies 5 -v    # start the agent
+  uv run jobs.py fit --company X --title Y --url U --jd jd.txt            # called by the agent
   uv run jobs.py tailor --company X --title Y --jd jd.txt                  # called by the agent
   uv run jobs.py log --company X --title Y --url U --status applied        # called by the agent
   uv run jobs.py issue "what went wrong" --url U                          # called by the agent
   jobs.py mcp                                                             # started by the agent CLI
 """
-import argparse, datetime, difflib, json, os, re, shutil, subprocess, sys, tempfile, threading, time, tomllib
+import argparse, datetime, difflib, json, os, re, shutil, smtplib, sqlite3, subprocess, sys, tempfile, threading, time, tomllib
+from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).parent.resolve()
 BASE_CV, ANSWERS, LOG, RUN, APPS, SEARCH, EVENTS, LOGS = (ROOT / p for p in (
@@ -18,7 +21,12 @@ AGY_LOGS = Path.home() / ".gemini/antigravity-cli/log"
 AGENTS = ("agy", "claude", "codex", "pi")  # agent CLIs, see agent_cmd()
 AGY_MODEL = "gemini-3.8-flash-high"  # agy's own default isn't Flash
 MCP = "linkedin_playwright"  # the browser MCP server's name in every agent CLI
-ISSUES = ROOT / "issues.log"
+ISSUES, DB = ROOT / "issues.log", ROOT / "jobs.db"
+FIT_APPLY, FIT_EMAIL = 0.5, 0.9  # Jev's "compatible" probability: apply from 0.5, also email the hiring team from 0.9
+JEV = "typesafe/jev-1.13"  # pinned: ~typesafe/jev-latest could change answers under us
+for _l in (ROOT / ".env").read_text().splitlines() if (ROOT / ".env").exists() else []:  # KEY=VALUE, no dependency
+    if "=" in _l and not _l.lstrip().startswith("#"):
+        os.environ.setdefault(_l.split("=", 1)[0].strip(), _l.split("=", 1)[1].strip().strip("'\""))
 BROWSERS = {  # macOS; any other Chromium-based browser works by passing its executable path
     "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "brave": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -31,14 +39,31 @@ def slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:60]
 
 
-def logged() -> list[dict]:
-    out = []
-    for l in LOG.read_text().splitlines() if LOG.exists() else []:
+def db() -> sqlite3.Connection:
+    """jobs.db: one row per job the agent opened. Imports applied.jsonl (the old log) on creation."""
+    new = not DB.exists()
+    c = sqlite3.connect(DB, isolation_level=None, timeout=30)  # autocommit
+    c.row_factory = sqlite3.Row
+    c.execute("CREATE TABLE IF NOT EXISTS jobs (url TEXT PRIMARY KEY, ts REAL, company TEXT, title TEXT, status TEXT, "
+              "note TEXT, fit REAL, poster TEXT, jd TEXT, cv_yaml TEXT, contact_email TEXT, email_subject TEXT, "
+              "email_body TEXT, email_sent REAL)")
+    for l in LOG.read_text().splitlines() if new and LOG.exists() else []:
         try:
-            out.append(json.loads(l))
-        except ValueError:  # half-written line: skip rather than brick every later run
-            pass
-    return out
+            e = json.loads(l)
+        except ValueError:  # half-written line
+            continue
+        save(e["url"], c=c, **{k: e.get(k) for k in ("ts", "company", "title", "status", "note")})
+    return c
+
+
+def save(url: str, c: sqlite3.Connection | None = None, **cols) -> None:
+    """Insert or update the job's row, only the columns given."""
+    q = f"INSERT INTO jobs (url, {', '.join(cols)}) VALUES ({', '.join('?' * (len(cols) + 1))}) ON CONFLICT(url) DO UPDATE SET "
+    (c or db()).execute(q + ", ".join(f"{k} = excluded.{k}" for k in cols), (job_url(url), *cols.values()))
+
+
+def logged() -> list[dict]:
+    return [dict(r) for r in db().execute("SELECT * FROM jobs WHERE status IN ('applied', 'skipped', 'failed') ORDER BY ts")]
 
 
 def job_url(u: str) -> str:  # canonical /jobs/view/<id>/ so the skip list matches however the agent copied it
@@ -187,16 +212,129 @@ def tailor(a) -> int:
     return 1
 
 
+def jev(cv: str, title: str, company: str, jd: str) -> float:
+    """OpenRouter Decisions API: probability (0-1) that the CV is a real match for the job."""
+    body = {"model": JEV, "state": {"candidate_cv": cv, "job_offer": f"{title} at {company}\n\n{jd}"},
+            "questions": {"compatible": {
+                "type": "noul",
+                "instructions": "Judging only by the candidate's CV against the job's requirements, is the candidate a real match for this job?",
+                "criteria": {"true": "The CV meets the job's must-have requirements: main tech stack, seniority or years "
+                                     "of experience, required languages, location or work permit.",
+                             "false": "The CV lacks at least one must-have requirement, or the job is in another field or seniority."}}}}
+    req = Request("https://openrouter.ai/api/alpha/decisions", json.dumps(body).encode(),
+                  {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}", "Content-Type": "application/json"})
+    with urlopen(req, timeout=60) as r:
+        return json.load(r)["answers"]["compatible"]["noul"]
+
+
+def fit(a) -> int:
+    """The agent asks before applying: Jev decides whether the job matches the base CV. Prints APPLY or SKIP."""
+    try:
+        jd = Path(a.jd).read_text()
+    except OSError as e:
+        sys.exit(str(e))
+    p = None
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        say("no OPENROUTER_API_KEY in .env: applying without a compatibility check", "debug")
+    else:
+        try:
+            p = jev(BASE_CV.read_text(), a.title, a.company, jd)
+        except Exception as e:  # alpha API: never block the run on it
+            say(f"Jev failed, applying without a compatibility check: {e}", "warn")
+    ok = p is None or p >= FIT_APPLY
+    note = "" if ok else f"not compatible (fit {p:.2f})"
+    save(a.url, ts=time.time(), company=a.company, title=a.title, fit=p, poster=a.poster or None, jd=jd,
+         **({} if ok else {"status": "skipped", "note": note}))
+    say(f"fit {'?' if p is None else f'{p:.2f}'}: {a.company} — {a.title}" + ("" if ok else "  → skipped"), "info" if ok else "warn")
+    print(f"APPLY (fit {'unknown' if p is None else f'{p:.2f}'})" if ok else f"SKIP: {note}. Already logged, go to the next job.")
+    return 0
+
+
+EMAIL_PROMPT = """Do not use any tools. Reply with text only.
+Write a short cold email from the candidate to {poster}, who posted the job "{title}" at {company}.
+The candidate just applied through LinkedIn and attaches the CV.
+- Write in the same language as the job description.
+- At most 300 characters in total, greeting and sign-off included.
+- Plain prose only: no bullet points, no lists, no markdown, no emojis, no dashes or other special characters.
+- Name the role, give one or two facts from the CV that match the job's key requirements, ask for a short call,
+  sign with the candidate's first name. Only facts from the CV, nothing invented.
+Output ONLY the email body.
+
+<cv>
+{cv}
+</cv>
+
+<job>
+{jd}
+</job>"""
+
+
+def contact(url: str, pdf: Path) -> None:
+    """After applying to a strong match: find the hiring team member's email (Hunter), write and send an email.
+    Anything missing (poster, key, a verified email) = silently nothing. No SMTP_HOST = the email is only saved."""
+    c = db()
+    r = c.execute("SELECT * FROM jobs WHERE url = ?", (job_url(url),)).fetchone()
+    if not r or (r["fit"] or 0) < FIT_EMAIL or not r["poster"] or not os.environ.get("HUNTER_API_KEY"):
+        return
+    try:
+        q = urlencode({"full_name": r["poster"], "company": r["company"], "api_key": os.environ["HUNTER_API_KEY"]})
+        with urlopen(f"https://api.hunter.io/v2/email-finder?{q}", timeout=30) as h:
+            d = json.load(h)["data"]
+    except Exception as e:
+        say(f"Hunter: no email for {r['poster']} ({r['company']}): {e}", "debug")
+        return
+    to = d.get("email")
+    if not to or not ((d.get("verification") or {}).get("status") == "valid" or (d.get("score") or 0) >= 90):
+        say(f"Hunter: no verified email for {r['poster']} ({r['company']})", "debug")
+        return
+    if c.execute("SELECT 1 FROM jobs WHERE contact_email = ? AND email_sent IS NOT NULL", (to,)).fetchone():
+        say(f"already emailed {to}, not again", "debug")
+        return
+    run = json.loads(RUN.read_text()) if RUN.exists() else {}
+    with tempfile.TemporaryDirectory() as tmp:
+        body, _ = ask(EMAIL_PROMPT.format(poster=r["poster"], title=r["title"], company=r["company"], cv=BASE_CV.read_text(),
+                                          jd=r["jd"] or ""), Path(tmp), run.get("agent", "agy"), run.get("model", ""))
+    body = re.sub(r"[^\w\s.,;:!?¿¡()'@/+]", "", re.sub(r"\s*[—–]\s*", ", ", body)).strip()  # no special characters
+    name = re.search(r"^\s+name:\s*(.+)$", BASE_CV.read_text(), re.M)[1].strip()
+    subject = f"{r['title']} - {name}"
+    save(url, contact_email=to, email_subject=subject, email_body=body)
+    if not body or len(body) > 300:
+        say(f"email to {to} not sent: {len(body)} chars, want 1-300 (saved in jobs.db)", "warn")
+        return
+    if not os.environ.get("SMTP_HOST"):
+        say(f"email to {r['poster']} <{to}> saved, not sent (no SMTP_HOST in .env)")
+        return
+    m = EmailMessage()
+    m["From"], m["To"], m["Subject"] = os.environ.get("SMTP_FROM") or os.environ["SMTP_USER"], to, subject
+    m.set_content(body)
+    m.add_attachment(pdf.read_bytes(), maintype="application", subtype="pdf", filename=f"CV {name}.pdf")
+    port = int(os.environ.get("SMTP_PORT", 465))
+    try:
+        with (smtplib.SMTP_SSL if port == 465 else smtplib.SMTP)(os.environ["SMTP_HOST"], port, timeout=30) as s:
+            if port != 465:
+                s.starttls()
+            s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+            s.send_message(m)
+    except Exception as e:
+        say(f"email to {to} failed: {e}", "err")
+        return
+    save(url, email_sent=time.time())
+    say(f"emailed {r['poster']} <{to}>", "ok")
+
+
 def log(a) -> int:
-    torn = LOG.exists() and LOG.stat().st_size and not LOG.read_bytes().endswith(b"\n")
-    with LOG.open("a") as f:
-        f.write("\n" * bool(torn) + json.dumps({"ts": time.time(), **{k: getattr(a, k) for k in ("company", "title", "status", "note")}, "url": job_url(a.url)}) + "\n")
+    yml = APPS / slug(f"{a.company}-{a.title}") / "CV.yaml"
+    save(a.url, ts=time.time(), company=a.company, title=a.title, status=a.status, note=a.note,
+         **({"cv_yaml": yml.read_text()} if a.status == "applied" and yml.exists() else {}))
     run = json.loads(RUN.read_text()) if RUN.exists() else {"started": 0, "max": 0}
     n = applied_since(run["started"])
     out_of_time = run.get("hours") and time.time() >= run["started"] + run["hours"] * 3600
     say(f"{a.status}: {a.company} — {a.title}" + (f" ({a.note})" if a.note else "") + f"  [{n}/{run['max'] or '∞'} applied]",
         {"applied": "ok", "skipped": "warn", "failed": "err"}[a.status])
     say(job_url(a.url), "debug")
+    if a.status == "applied":
+        pdf = yml.with_suffix(".pdf")
+        contact(a.url, pdf if pdf.exists() else ROOT / "base_cv.pdf")
     print(f"{n} applied this run." + (" LIMIT REACHED: stop now and summarize." if run["max"] and n >= run["max"] or out_of_time else ""))
     return 0
 
@@ -216,8 +354,12 @@ Project directory: {root}. Run shell commands from there.
 
 For each search results page (search URL + &start=0, 25, 50, ...), for each job card:
 1. Skip cards marked "Applied" and URLs in the already-processed list.
-2. Open the job and read the full description (click "see more" if present).
-3. Save the description text to {root}/applications/jd.txt, then run (in the foreground, wait for it to finish, ~1 min):
+2. Open the job and read the full description (click "see more" if present). If a "Meet the hiring team" section
+   shows a person, note their full name.
+3. Save the description text to {root}/applications/jd.txt, then run:
+   uv run jobs.py fit --company "<company>" --title "<title>" --url "<job url>" --jd applications/jd.txt --poster "<hiring team name, or empty>"
+   If it prints SKIP, the job is already logged: go to the next job. If it prints APPLY, go on.
+   Then run (in the foreground, wait for it to finish, ~1 min):
    uv run jobs.py tailor --company "<company>" --title "<title>" --jd applications/jd.txt
    The last line printed is the absolute PDF path to upload.
 4. Click "Easy Apply". At the resume step click "Upload resume", then call browser_file_upload with that PDF path, and make sure it is selected.
@@ -444,7 +586,7 @@ more:  uv run jobs.py run -h    ·    README.md    ·    docs/filters.md"""
 
 RUN_EPILOG = """Every option's default comes from search.toml ([now: ...] shows it); a flag overrides it for this run.
 Stops at whichever comes first: --max-applies, --max-time, --max-pages, or no more results.
-Ctrl+C stops at any time; processed jobs are skipped next run (applied.jsonl).
+Ctrl+C stops at any time; processed jobs are skipped next run (jobs.db).
 
 examples:
   uv run jobs.py run "python developer" -l Valencia
@@ -521,11 +663,20 @@ def main():
     t.add_argument("--title", required=True)
     t.add_argument("--jd", required=True, metavar="FILE", help="text file with the job description")
     l = sub.add_parser("log", help="record a job's result (the agent calls this)",
-                       description="Appends to applied.jsonl and prints LIMIT REACHED when the run must stop.")
+                       description="Records the result in jobs.db, emails the hiring team of strong matches, "
+                                   "and prints LIMIT REACHED when the run must stop.")
     for k in ("company", "title", "url"):
         l.add_argument(f"--{k}", required=True)
     l.add_argument("--status", required=True, type=lambda s: s.strip().lower(), choices=("applied", "skipped", "failed"))
     l.add_argument("--note", default="", help="why, e.g. the question that blocked it")
+    f = sub.add_parser("fit", help="ask Jev if a job matches the CV (the agent calls this)",
+                       description=f"Asks the OpenRouter Decisions API ({JEV}) whether the job matches cv.yaml. "
+                                   f"Prints APPLY (fit >= {FIT_APPLY}) or SKIP (logged as skipped). "
+                                   "No OPENROUTER_API_KEY or an API error = APPLY.")
+    for k in ("company", "title", "url"):
+        f.add_argument(f"--{k}", required=True)
+    f.add_argument("--jd", required=True, metavar="FILE", help="text file with the job description")
+    f.add_argument("--poster", default="", help="name in the job's \"Meet the hiring team\" section, if any")
     i = sub.add_parser("issue", help="report a problem during a run (the agent calls this)",
                        description="Appends a line to issues.log and shows it as a warning in the live log.")
     i.add_argument("text", help="what happened, where, what was tried")
@@ -535,7 +686,7 @@ def main():
     a = p.parse_args()
     if a.cmd == "run" and not a.position:
         p.error("no position: pass one or set `position` in search.toml")
-    sys.exit({"run": run, "tailor": tailor, "log": log, "issue": issue, "login": login, "mcp": mcp}[a.cmd](a))
+    sys.exit({"run": run, "fit": fit, "tailor": tailor, "log": log, "issue": issue, "login": login, "mcp": mcp}[a.cmd](a))
 
 
 if __name__ == "__main__":
