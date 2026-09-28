@@ -512,6 +512,19 @@ def test_remember_goes_to_answers_md_once():
     assert "## Contact" in text  # the rest of the file is untouched
 
 
+def test_remember_parallel_calls_lose_nothing():
+    """The model asks several note_question calls in one turn and LangChain runs them in parallel threads."""
+    qs = [f"Have you done thing number {i} in production yourself?" for i in range(40)]
+    ts = [threading.Thread(target=jobs.remember, args=(q, "Yes", "u")) for q in qs]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    section = jobs.ANSWERS.read_text().split(jobs.NOTED)[1]
+    assert sorted(l for l in section.splitlines() if l.startswith("- ")) == sorted(f"- {q}: Yes" for q in qs)
+    assert jobs.ANSWERS.read_text().count(jobs.NOTED) == 1
+
+
 def test_noted_answers_reach_the_next_job(monkeypatch, tmp_path):
     """An answer the agent gave once is in <candidate_answers> for every later job: same question, same answer."""
     r = apply_with(monkeypatch, tmp_path, [call("note_question", question="Sold on Wallapop?", answer="Yes"),

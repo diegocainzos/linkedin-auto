@@ -436,16 +436,19 @@ Keep snapshots small: prefer targeted clicks over repeated full-page snapshots."
 
 
 NOTED = "## Answered by the agent (review these)"
+ANSWERS_LOCK = threading.Lock()  # the agent's parallel tool calls each append to answers.md
 
 
 def remember(question: str, answer: str, url: str) -> str:
     """A question answers.md didn't cover: its answer goes at the end of answers.md, so the next jobs give the same
     one and you can correct it. A question already there is kept as it is."""
-    text = ANSWERS.read_text()
     q = " ".join(question.split()).rstrip(":")
-    if f"- {q}:" not in text:
+    with ANSWERS_LOCK:
+        text = ANSWERS.read_text()
+        if f"- {q}:" in text:
+            return "noted"
         ANSWERS.write_text(text.rstrip("\n") + ("" if NOTED in text else f"\n\n{NOTED}\n") + f"\n- {q}: {' '.join(answer.split())}\n")
-        say(f"new question answered: {q} → {answer}  ({url})")
+    say(f"new question answered: {q} → {answer}  ({url})")
     return "noted"
 
 
