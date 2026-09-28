@@ -81,7 +81,7 @@ if __name__ == "__main__":
     cv = jobs.BASE_CV.read_text()
     todo = [j for j in js if set(VARIANTS) - set(cache.get(j["url"], {}))]
     with ThreadPoolExecutor(8) as ex:
-        for j, a in zip(todo, ex.map(lambda j: ask(j, cv), todo)):
+        for j, a in zip(todo, ex.map(lambda j: ask(j, cv), todo), strict=True):
             cache[j["url"]] = cache.get(j["url"], {}) | a
     cache_f.write_text(json.dumps(cache, indent=1))
     print(f"{len(js)} jobs, {sum(labels[j['url']] for j in js)} labelled apply\n")
