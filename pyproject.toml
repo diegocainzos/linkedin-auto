@@ -7,3 +7,8 @@ dependencies = [
     "langchain[mcp]>=1.4",
     "rendercv[full]>=2.8",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

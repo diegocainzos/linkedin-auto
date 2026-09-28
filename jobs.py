@@ -1,13 +1,18 @@
-"""LinkedIn Easy Apply automation: a LangChain agent (OpenRouter model) + Playwright MCP, with a tailored RenderCV CV per job.
+"""LinkedIn Easy Apply automation, a pipeline:
+  1. scrape   the public (logged-out) job pages, one request at a time: never touches the LinkedIn account
+  2. prepare  Jev fit check + a tailored RenderCV CV, several jobs in parallel (only APIs)
+  3. apply    one job at a time in the logged-in browser: a fresh LangChain agent (OpenRouter model) + Playwright MCP per job
 
   uv run jobs.py login --browser brave                                    # once per browser
-  uv run jobs.py run "python developer" -l Valencia --max-applies 5 -v    # start the agent
+  uv run jobs.py run "python developer" -l Valencia --max-applies 5 -v    # run the pipeline
   uv run jobs.py tailor --company X --title Y --jd jd.txt                  # one CV by hand
 """
-import argparse, asyncio, datetime, difflib, json, os, re, shutil, smtplib, sqlite3, subprocess, sys, threading, time, tomllib, warnings
+import argparse, asyncio, datetime, difflib, html, json, os, re, shutil, smtplib, sqlite3, subprocess, sys, threading, time, tomllib, warnings
+from collections.abc import Iterator
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Literal
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -17,7 +22,7 @@ from langchain_core._api import suppress_langchain_beta_warning
 with suppress_langchain_beta_warning():  # langchain.mcp is beta
     from langchain.mcp import MCPAdapter
 from langchain.agents import create_agent
-from langchain.agents.middleware import ClearToolUsesEdit, ContextEditingMiddleware
+from langchain.agents.middleware import ClearToolUsesEdit, ContextEditingMiddleware, ModelCallLimitMiddleware
 from langchain.tools import tool
 from langchain_openrouter import ChatOpenRouter
 
@@ -28,6 +33,11 @@ MODEL = "~deepseek/deepseek-flash-latest"  # OpenRouter model id
 ISSUES, DB = ROOT / "issues.log", ROOT / "jobs.db"
 FIT_APPLY, FIT_EMAIL = 0.5, 0.9  # Jev's "compatible" probability: apply from 0.5, also email the hiring team from 0.9
 JEV = "typesafe/jev-1.13"  # pinned: ~typesafe/jev-latest could change answers under us
+GUEST = "https://www.linkedin.com/jobs-guest/jobs/api"  # logged-out job pages: scraping them never touches the account
+DELAY = 1.0  # seconds between requests to LinkedIn's public pages
+WORKERS = 4  # jobs being fit-checked and tailored at once (OpenRouter calls, no LinkedIn)
+JOB_TIMEOUT = 15 * 60  # seconds the agent gets for one application
+MAX_MODEL_CALLS = 80  # per application; a normal Easy Apply takes 15-40
 for _l in (ROOT / ".env").read_text().splitlines() if (ROOT / ".env").exists() else []:  # KEY=VALUE  # comment, no dependency
     if "=" in _l and not _l.lstrip().startswith("#"):
         os.environ.setdefault(_l.split("=", 1)[0].strip(), _l.split("=", 1)[1].split(" #")[0].strip().strip("'\""))
@@ -44,13 +54,18 @@ def slug(s: str) -> str:
 
 
 def db() -> sqlite3.Connection:
-    """jobs.db: one row per job the agent opened. Imports applied.jsonl (the old log) on creation."""
+    """jobs.db: one row per job found. status: new (scraped) -> ready (CV done) -> applied | skipped | failed.
+    Imports applied.jsonl (the old log) on creation."""
     new = not DB.exists()
     c = sqlite3.connect(DB, isolation_level=None, timeout=30)  # autocommit
     c.row_factory = sqlite3.Row
     c.execute("CREATE TABLE IF NOT EXISTS jobs (url TEXT PRIMARY KEY, ts REAL, company TEXT, title TEXT, status TEXT, "
               "note TEXT, fit REAL, poster TEXT, jd TEXT, cv_yaml TEXT, contact_email TEXT, email_subject TEXT, "
-              "email_body TEXT, email_sent REAL)")
+              "email_body TEXT, email_sent REAL, pdf TEXT)")
+    try:  # jobs.db from before the pipeline
+        c.execute("ALTER TABLE jobs ADD COLUMN pdf TEXT")
+    except sqlite3.OperationalError:  # already there
+        pass
     for l in LOG.read_text().splitlines() if new and LOG.exists() else []:
         try:
             e = json.loads(l)
@@ -77,6 +92,11 @@ def job_url(u: str) -> str:  # canonical /jobs/view/<id>/ so the skip list match
 
 def applied_since(started: float) -> int:
     return sum(1 for e in logged() if e["status"] == "applied" and e.get("ts", 0) >= started)
+
+
+def queued(status: str) -> list[dict]:
+    """Jobs a previous run left half-way (new or ready), oldest first."""
+    return [dict(r) for r in db().execute("SELECT * FROM jobs WHERE status = ? ORDER BY ts", (status,))]
 
 
 COLORS = {"ok": 32, "warn": 33, "err": 31, "info": 36, "debug": 90}
@@ -155,9 +175,9 @@ def render(yml: Path, pdf: Path) -> subprocess.CompletedProcess:
                           env=os.environ | {"COLUMNS": "200", "NO_COLOR": "1"})  # no -q: it hides the error
 
 
-def tailor(company: str, title: str, jd: str, model: str) -> tuple[bool, str]:
+def tailor(company: str, title: str, jd: str, model: str, folder: str = "") -> tuple[bool, str]:
     """Tailored CV for one job. Returns (ok, message); the message's last line is always a PDF path to upload."""
-    out = APPS / slug(f"{company}-{title}")
+    out = APPS / slug(folder or f"{company}-{title}")
     out.mkdir(parents=True, exist_ok=True)
     yml, pdf, error = out / "CV.yaml", out / "CV.pdf", ""
     say(f"tailoring CV: {company} — {title}")
@@ -198,19 +218,93 @@ def jev(cv: str, title: str, company: str, jd: str) -> float:
         return json.load(r)["answers"]["compatible"]["noul"]
 
 
-def fit(company: str, title: str, url: str, jd: str, poster: str) -> str:
-    """Before applying: Jev decides whether the job matches the base CV. Returns APPLY or SKIP."""
+def prepare(j: dict, model: str) -> dict | None:
+    """Jev fit check, then a tailored CV. Returns the job ready to apply, or None when it's skipped."""
     p = None
     try:
-        p = jev(BASE_CV.read_text(), title, company, jd)
+        p = jev(BASE_CV.read_text(), j["title"], j["company"], j["jd"] or "")
     except Exception as e:  # alpha API: never block the run on it
         say(f"Jev failed, applying without a compatibility check: {e}", "warn")
-    ok = p is None or p >= FIT_APPLY
-    note = "" if ok else f"not compatible (fit {p:.2f})"
-    save(url, ts=time.time(), company=company, title=title, fit=p, poster=poster or None, jd=jd,
-         **({} if ok else {"status": "skipped", "note": note}))
-    say(f"fit {'?' if p is None else f'{p:.2f}'}: {company} — {title}" + ("" if ok else "  → skipped"), "info" if ok else "warn")
-    return f"APPLY (fit {'unknown' if p is None else f'{p:.2f}'})" if ok else f"SKIP: {note}. Already logged, go to the next job."
+    if p is not None and p < FIT_APPLY:
+        note = f"not compatible (fit {p:.2f})"
+        save(j["url"], ts=time.time(), status="skipped", note=note, fit=p)
+        say(f"skipped: {j['company']} — {j['title']} ({note})", "warn")
+        return None
+    say(f"fit {'?' if p is None else f'{p:.2f}'}: {j['company']} — {j['title']}")
+    # the job id in the folder: the same title at the same company can be tailored twice at once
+    pdf = tailor(j["company"], j["title"], j["jd"] or "", model, f"{j['company']}-{j['title']}-{j['url'].split('/')[-2]}")[1]
+    pdf = pdf.splitlines()[-1]
+    save(j["url"], status="ready", fit=p, pdf=pdf)
+    return j | {"status": "ready", "fit": p, "pdf": pdf}
+
+
+def fetch(url: str) -> str:
+    """GET a public LinkedIn page, politely. Rate limited (429) = wait longer and retry, twice."""
+    for attempt in range(3):
+        time.sleep(DELAY * (1 + 10 * attempt))
+        try:
+            with urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as r:
+                return r.read().decode()
+        except HTTPError as e:
+            if e.code != 429 or attempt == 2:
+                raise
+
+
+def guest_search(search: str, start: int) -> str:
+    """The logged-in search URL as the public search endpoint: same filters, one page of results from `start`."""
+    return search.replace("https://www.linkedin.com/jobs/search/?", f"{GUEST}/seeMoreJobPostings/search?") + f"&start={start}"
+
+
+def parse_search(page: str) -> list[str]:
+    return list(dict.fromkeys(re.findall(r"urn:li:jobPosting:(\d+)", page)))
+
+
+def text(fragment: str) -> str:
+    """HTML fragment -> plain text, one line per paragraph or list item."""
+    lines = re.sub(r"<[^>]+>", "", re.sub(r"<br\s*/?>|</(?:p|li|h\d|ul|ol)>", "\n", fragment)).splitlines()
+    return "\n".join(s for s in (html.unescape(l).strip() for l in lines) if s)
+
+
+def parse_job(page: str) -> dict | None:
+    """A public job page -> title, company, description and the hiring team member's name ("" if none shown)."""
+    if not (title := re.search(r"<h2[^>]*top-card-layout__title[^>]*>(.*?)</h2>", page, re.S)):
+        return None
+    company = re.search(r"topcard__org-name-link[^>]*>(.*?)</a>", page, re.S)
+    jd = re.search(r"show-more-less-html__markup[^>]*>(.*?)</div>", page, re.S)
+    poster = re.search(r'aria-label="Message ([^"]+)"', page)
+    return {"title": text(title[1]), "company": text(company[1]) if company else "", "jd": text(jd[1]) if jd else "",
+            "poster": html.unescape(poster[1]) if poster else ""}
+
+
+def scrape(search: str, max_pages: int) -> Iterator[dict]:
+    """New jobs from the public search pages, one request at a time, saved with status new. Known jobs cost no request."""
+    known = {r[0] for r in db().execute("SELECT url FROM jobs WHERE status IS NOT NULL")}
+    start = pages = 0
+    while not max_pages or pages < max_pages:
+        try:
+            ids = parse_search(fetch(guest_search(search, start)))
+        except Exception as e:
+            say(f"search page failed, no more new jobs this run: {e}", "warn")
+            return
+        if not ids:
+            return
+        pages, start = pages + 1, start + len(ids)
+        for i in ids:
+            url = f"https://www.linkedin.com/jobs/view/{i}/"
+            if url in known:
+                continue
+            known.add(url)
+            try:
+                j = parse_job(fetch(f"{GUEST}/jobPosting/{i}"))
+            except Exception as e:  # 404 = taken down since the search
+                say(f"job page failed, skipped: {url} ({e})", "warn")
+                continue
+            if not j:
+                say(f"job page without a job, skipped: {url}", "warn")
+                continue
+            save(url, ts=time.time(), status="new", **j)
+            say(f"found: {j['company']} — {j['title']}", "debug")
+            yield {"url": url, **j}
 
 
 EMAIL_PROMPT = """Write a short cold email from the candidate to {poster}, who posted the job "{title}" at {company}.
@@ -286,20 +380,17 @@ def contact(url: str, pdf: Path, model: str) -> None:
     say(f"emailed {r['poster']} <{to}>", "ok")
 
 
-def log(company: str, title: str, url: str, status: str, note: str, started: float, max_applies: int, hours: float,
-        model: str) -> str:
-    yml = APPS / slug(f"{company}-{title}") / "CV.yaml"
-    save(url, ts=time.time(), company=company, title=title, status=status, note=note,
+def log(j: dict, status: str, note: str, model: str) -> None:
+    """A job's final result. Applied = keep the CV that was sent and email the hiring team if it's a strong match."""
+    pdf = Path(j["pdf"])
+    yml = pdf.with_suffix(".yaml")  # base_cv.pdf has none: cv_yaml stays empty
+    save(j["url"], ts=time.time(), status=status, note=note,
          **({"cv_yaml": yml.read_text()} if status == "applied" and yml.exists() else {}))
-    n = applied_since(started)
-    out_of_time = hours and time.time() >= started + hours * 3600
-    say(f"{status}: {company} — {title}" + (f" ({note})" if note else "") + f"  [{n}/{max_applies or '∞'} applied]",
+    say(f"{status}: {j['company']} — {j['title']}" + (f" ({note})" if note else ""),
         {"applied": "ok", "skipped": "warn", "failed": "err"}[status])
-    say(job_url(url), "debug")
+    say(j["url"], "debug")
     if status == "applied":
-        pdf = yml.with_suffix(".pdf")
-        contact(url, pdf if pdf.exists() else ROOT / "base_cv.pdf", model)
-    return f"{n} applied this run." + (" LIMIT REACHED: stop now and summarize." if max_applies and n >= max_applies or out_of_time else "")
+        contact(j["url"], pdf, model)
 
 
 def issue(text: str, url: str = "") -> str:
@@ -311,36 +402,37 @@ def issue(text: str, url: str = "") -> str:
     return "noted, carry on"
 
 
-SYSTEM = """You apply to LinkedIn jobs with Easy Apply. Drive the browser with the browser_* tools.
+SYSTEM = """You apply to ONE LinkedIn job with Easy Apply. Drive the browser with the browser_* tools.
 
-For each search results page (search URL + &start=0, 25, 50, ...), for each job card:
-1. Skip cards marked "Applied" and URLs in the already-processed list.
-2. Open the job and read the full description (click "see more" if present). If a "Meet the hiring team" section
-   shows a person, note their full name.
-3. Call check_fit with the company, title, job url, the full description text and that person's name (or empty).
-   If it returns SKIP, the job is already logged: go to the next job. If it returns APPLY, go on.
-   Call tailor_cv with the company, title and full description text (~1 min). The last line it returns is the absolute PDF path to upload.
-4. Click "Easy Apply". At the resume step click "Upload resume", then call browser_file_upload with that PDF path, and make sure it is selected.
-5. Fill every step truthfully from <candidate_answers> and <cv>. Never invent facts.
+1. Open the job URL. If the page says you already applied, the job no longer accepts applications, or there is
+   no "Easy Apply" button, call log_job with status skipped and the reason as note, and stop.
+2. Click "Easy Apply". At the resume step click "Upload resume", then call browser_file_upload with the given PDF path, and make sure it is selected.
+3. Fill every step truthfully from <candidate_answers> and <cv>. Never invent facts.
    If a required question cannot be answered truthfully from them, discard the application and log it as skipped with the question as note.
-6. Uncheck "Follow company" if present, Submit, dismiss the confirmation dialog.
-7. Call log_job with company, title, job url (e.g. https://www.linkedin.com/jobs/view/123/), status and a short note.
-   If it returns LIMIT REACHED, stop immediately.
+4. Uncheck "Follow company" if present, Submit, dismiss the confirmation dialog.
+5. Call log_job with the status and a short note, then reply with one line. Never open another job.
 
 Unexpected popups (premium ads, "Save this application?", surveys, cookie banners, "Share your profile?", tooltips):
 - Close them: press Escape, or click Dismiss / Close / X / "Not now" / "No thanks" / "Discard". Never click the upsell button.
 - Native browser dialogs (alert/confirm/beforeunload): use browser_handle_dialog.
 - If an action has no effect, take a fresh snapshot before retrying; the page probably changed.
-If you are stuck on the same job after 3 attempts, re-open the search URL, log that job as failed with what blocked you as note, and move on.
+If you are stuck on the same step after 3 attempts, log the job as failed with what blocked you as note.
 
-Report every execution problem as soon as it happens with report_issue (what happened, where, what you tried; job url if any), then carry on.
+Report every execution problem as soon as it happens with report_issue (what happened, where, what you tried), then carry on.
 Problems = a tool error, a popup you couldn't close, a page that didn't load or looked wrong, a form field you
-couldn't fill, an upload that failed, a filter that wasn't applied, anything unexpected. Not needed for normal skips.
+couldn't fill, an upload that failed, anything unexpected. Not needed for normal skips.
 
-On the first results page, check the filter pills at the top show the requested filters as active; if one is not, say which and continue.
-If LinkedIn shows a login page, a captcha or a security check, stop and say so.
+If LinkedIn shows a login page, a captcha or a security check, call stop_run with what you saw.
 Never click anything that pays, messages people, or edits the LinkedIn profile.
 Keep snapshots small: prefer targeted clicks over repeated full-page snapshots."""
+
+
+def system_prompt() -> str:
+    return f"{SYSTEM}\n\n<candidate_answers>\n{ANSWERS.read_text()}\n</candidate_answers>\n\n<cv>\n{BASE_CV.read_text()}\n</cv>"
+
+
+class Stop(Exception):
+    """Ends the run for every job: LinkedIn showed a login page, a captcha or a security check."""
 
 
 # Human-readable filter values -> LinkedIn search URL codes. See docs/filters.md.
@@ -434,47 +526,118 @@ def preflight(a) -> None:
             ANSWERS.write_text(new)
 
 
-async def agent_loop(a, prompt: str, out: Path, started: float) -> None:
-    """The agent: OpenRouter model + Playwright MCP browser tools + our own tools. Transcript -> out/agent.txt."""
+async def apply_one(j: dict, model: str, browser_tools: list, out: Path) -> None:
+    """One job, one fresh agent: its context starts clean and dies with the job. Transcript -> out/<job id>.txt.
+    The agent logs the result; if it ends without one (model call cap, gave up), the job is logged failed."""
+    stop = []
+
+    @tool
+    def log_job(status: Literal["applied", "skipped", "failed"], note: str = "") -> str:
+        """Record this job's result, once, at the end."""
+        log(j, status, note, model)
+        return "logged. Reply with one line, you're done."
+
+    @tool
+    def report_issue(text: str) -> str:
+        """Report an execution problem: what happened, where, what you tried."""
+        return issue(text, j["url"])
+
+    @tool
+    def stop_run(reason: str) -> str:
+        """LinkedIn shows a login page, a captcha or a security check: stops the whole run."""
+        stop.append(reason)
+        return "stopping"
+
+    agent = create_agent(llm(model), [*browser_tools, log_job, report_issue, stop_run], system_prompt=system_prompt(),
+                         middleware=[ContextEditingMiddleware(edits=[ClearToolUsesEdit()]),  # old page snapshots
+                                     ModelCallLimitMiddleware(run_limit=MAX_MODEL_CALLS, exit_behavior="end")])
+    task = f"Apply to {j['title']} at {j['company']}: {j['url']}\nResume PDF to upload: {j['pdf']}"
+    with (out / f"{j['url'].split('/')[-2]}.txt").open("w") as f:
+        async for step in agent.astream({"messages": [{"role": "user", "content": task}]},
+                                        {"recursion_limit": 10 * MAX_MODEL_CALLS}, stream_mode="updates"):
+            for update in step.values():
+                for m in (update or {}).get("messages", []):
+                    f.write(m.pretty_repr() + "\n")
+                    f.flush()
+            if stop:
+                raise Stop(stop[0])
+    if db().execute("SELECT status FROM jobs WHERE url = ?", (j["url"],)).fetchone()[0] == "ready":
+        log(j, "failed", "the agent stopped without logging a result", model)
+
+
+def limit_reached(a, started: float) -> bool:
+    return bool(a.max_applies and applied_since(started) >= a.max_applies
+                or a.max_time and time.time() >= started + a.max_time * 3600)
+
+
+async def pipeline(a, search: str, started: float, apply) -> None:
+    """scrape (one request at a time) -> prepare (WORKERS at once) -> apply (one job at a time: one browser, one account).
+    The queues are small, so when applying stops only a few jobs were scraped and tailored ahead.
+    Jobs a crashed run left new or ready go first."""
+    todo, ready = asyncio.Queue(WORKERS), asyncio.Queue(WORKERS)
+    resumed = queued("ready")  # before the workers start adding to it
+
+    async def scraper():
+        for j in queued("new"):
+            await todo.put(j)
+        jobs = scrape(search, a.max_pages)
+        while j := await asyncio.to_thread(next, jobs, None):
+            await todo.put(j)
+        for _ in range(WORKERS):
+            await todo.put(None)
+
+    async def worker():
+        while j := await todo.get():
+            try:
+                if r := await asyncio.to_thread(prepare, j, a.model):
+                    await ready.put(r)
+            except Exception as e:
+                save(j["url"], ts=time.time(), status="failed", note=f"preparing failed: {e!r}"[:500])
+                say(f"preparing {j['company']} — {j['title']} failed: {e!r}", "err")
+
+    async def producers():
+        async with asyncio.TaskGroup() as g:
+            g.create_task(scraper())
+            for _ in range(WORKERS):
+                g.create_task(worker())
+        await ready.put(None)
+
+    prod = asyncio.create_task(producers())
+    try:
+        while not limit_reached(a, started):
+            if resumed:
+                j = resumed.pop(0)
+            else:
+                left = started + a.max_time * 3600 - time.time() if a.max_time else None
+                try:
+                    j = await asyncio.wait_for(ready.get(), left)
+                except TimeoutError:
+                    break
+            if j is None:
+                say("no more jobs to apply to")
+                break
+            try:
+                await asyncio.wait_for(apply(j), JOB_TIMEOUT)
+            except Stop as e:
+                say(f"run stopped: {e}", "err")
+                break
+            except TimeoutError:
+                log(j, "failed", f"timed out after {JOB_TIMEOUT / 60:g} min", a.model)
+            except Exception as e:  # a crashed agent or browser call: next job
+                log(j, "failed", f"crashed: {e!r}"[:500], a.model)
+            say(f"{applied_since(started)}/{a.max_applies or '∞'} applied")
+    finally:
+        prod.cancel()  # ponytail: a CV being tailored right now still finishes (threads can't be cancelled), ~1 min
+
+
+async def browse(a, search: str, out: Path, started: float) -> None:
+    """The pipeline with a real browser: Playwright MCP on the agent's logged-in profile, shared by every job."""
     exe, profile = browser(a.browser)
     pw = {"command": "npx", "args": ["-y", "@playwright/mcp@latest", "--executable-path", exe, "--user-data-dir", str(profile),
                                      "--save-session", "--output-dir", str(out / "browser")]}  # every tool call + page snapshot
-
-    @tool
-    def check_fit(company: str, title: str, url: str, job_description: str, hiring_team_name: str = "") -> str:
-        """Before applying: does this job match the candidate's CV? Returns APPLY or SKIP (SKIP = already logged)."""
-        return fit(company, title, url, job_description, hiring_team_name)
-
-    @tool
-    def tailor_cv(company: str, title: str, job_description: str) -> str:
-        """Write a CV tailored to this job (~1 min). The last line returned is the absolute PDF path to upload."""
-        return tailor(company, title, job_description, a.model)[1]
-
-    @tool
-    def log_job(company: str, title: str, url: str, status: Literal["applied", "skipped", "failed"], note: str = "") -> str:
-        """Record a processed job's result. Says LIMIT REACHED when the run must stop."""
-        return log(company, title, url, status, note, started, a.max_applies, a.max_time, a.model)
-
-    @tool
-    def report_issue(text: str, url: str = "") -> str:
-        """Report an execution problem: what happened, where, what you tried; the job url if any."""
-        return issue(text, url)
-
     async with MCPAdapter({"mcpServers": {"browser": pw}}) as mcp:
-        agent = create_agent(llm(a.model), [*await mcp.list_tools(), check_fit, tailor_cv, log_job, report_issue], system_prompt=prompt,
-                             # ponytail: old page snapshots are the bulk of the context; clearing them keeps a run
-                             # going for hours. Add SummarizationMiddleware if the AI messages alone ever overflow.
-                             middleware=[ContextEditingMiddleware(edits=[ClearToolUsesEdit(exclude_tools=("log_job",))])])
-        last = None
-        with (out / "agent.txt").open("w") as f:
-            async for step in agent.astream({"messages": [{"role": "user", "content": "Start."}]},
-                                            {"recursion_limit": 100_000}, stream_mode="updates"):
-                for update in step.values():
-                    for m in (update or {}).get("messages", []):
-                        f.write(m.pretty_repr() + "\n")
-                        f.flush()
-                        last = m
-        print(last.text if last else "")  # the agent's final summary
+        tools = await mcp.list_tools()
+        await pipeline(a, search, started, lambda j: apply_one(j, a.model, tools, out))
 
 
 def run(a) -> int:
@@ -492,25 +655,17 @@ def run(a) -> int:
     say(f"searching \"{a.position}\" in {a.location or 'anywhere'}, stop after {a.max_applies or '∞'} applies"
         + (f" or {a.max_time:g}h" if a.max_time else ""))
     say(url, "debug")
-    pages = f"at most {a.max_pages} results pages" if a.max_pages else "all results pages until there are no more"
-    prompt = (SYSTEM +
-              f"\n\nSearch URL: {url}\nProcess {pages}.\n"
-              f"Already processed job URLs: {json.dumps([e['url'] for e in logged()][-300:])}\n\n"
-              f"<candidate_answers>\n{ANSWERS.read_text()}\n</candidate_answers>\n\n<cv>\n{BASE_CV.read_text()}\n</cv>")
-    say(f"agent started ({a.model}, {a.browser}), browsing LinkedIn... (-v for more detail)")
-    say(f"prompt: {len(prompt)} chars", "debug")
-    (out / "prompt.txt").write_text(" ".join(sys.argv) + "\n\n" + prompt)
+    say(f"pipeline started ({a.model}, {a.browser}): scraping public job pages, {WORKERS} CVs at a time, "
+        "one application at a time (-v for more detail)")
+    (out / "prompt.txt").write_text(" ".join(sys.argv) + "\n\n" + system_prompt())
     rc = 1
     try:
-        # the soft limit is LIMIT REACHED from log_job; stop 10 min later in case the agent never logs again
-        asyncio.run(asyncio.wait_for(agent_loop(a, prompt, out, started), a.max_time * 3600 + 600 if a.max_time else None))
+        asyncio.run(browse(a, url, out, started))
         rc = 0
-    except TimeoutError:
-        say(f"--max-time {a.max_time:g}h passed and the agent didn't stop: stopped it", "warn")
     except Exception as e:
-        say(f"agent crashed: {e!r}", "err")
+        say(f"run crashed: {e!r}", "err")
     finally:  # also on Ctrl+C
-        say(f"agent finished (exit {rc}): {applied_since(started)} applied this run", "ok" if rc == 0 else "err")
+        say(f"run finished (exit {rc}): {applied_since(started)} applied this run", "ok" if rc == 0 else "err")
         say(f"debug logs: {out}/")
         stop.set()
         tail.join(timeout=2)
@@ -561,7 +716,9 @@ def key_value(v):
 
 
 HELP = """Applies to LinkedIn Easy Apply jobs for you, uploading a CV tailored to each job.
-A LangChain agent (an OpenRouter model) drives your browser; answers come from answers.md, the CV from cv.yaml.
+Jobs are found on LinkedIn's public pages (not your account), CVs are tailored a few at a time, then a
+LangChain agent (an OpenRouter model) applies to one job at a time in your browser, starting fresh for each.
+Answers come from answers.md, the CV from cv.yaml.
 Problems the agent hits go to issues.log; everything about a run goes to logs/<date-time>/."""
 
 HELP_EPILOG = """first time:
@@ -610,7 +767,7 @@ def main():
     g.add_argument("--max-applies", type=int, default=10, metavar="N", help="stop after N successful applications" + now)
     g.add_argument("--max-time", type=float, default=0, metavar="HOURS",
                    help="stop after HOURS (e.g. 1.5), finishing the current job first" + now)
-    g.add_argument("--max-pages", type=int, default=0, metavar="N", help="result pages to go through, 25 jobs each" + now)
+    g.add_argument("--max-pages", type=int, default=0, metavar="N", help="result pages to go through, 10 jobs each" + now)
     g = r.add_argument_group("model, browser and output")
     g.add_argument("-m", "--model", default=MODEL, help="OpenRouter model id that drives the browser and writes the CVs" + now)
     g.add_argument("-b", "--browser", default="chrome",

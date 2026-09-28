@@ -2,40 +2,49 @@
 
 Applies to LinkedIn **Easy Apply** jobs automatically, with a CV tailored to each job.
 
-A [LangChain](https://docs.langchain.com) agent, running an [OpenRouter](https://openrouter.ai) model (`~deepseek/deepseek-flash-latest` by default, see [Model](#model)), drives your own browser (Chrome by default; Brave, Edge or any Chromium-based one) through Playwright MCP. It searches
-LinkedIn with your filters, then for each job it:
+It's a pipeline in three stages, so the only part that touches your LinkedIn account is the one that has to:
 
-1. reads the job description and asks **Jev** (OpenRouter's decision model) whether it matches your CV; if not, it skips it,
-2. generates a tailored CV from your `cv.yaml` (a separate text-only call to the same model, rendered with RenderCV),
-3. opens Easy Apply, uploads that PDF, fills the form from `answers.md`, submits,
-4. logs the result in `jobs.db` (SQLite), and reports any problem it hits to `issues.log`,
-5. for strong matches, finds the "Meet the hiring team" person's email (Hunter) and emails them (experimental, see [Hiring team email](#hiring-team-email)).
+1. **Scrape**, one request at a time: your search on LinkedIn's **public, logged-out** job pages (the same
+   filters), each job's title, company, description and "Meet the hiring team" name. Plain HTTP, no browser, no
+   login, no model. New jobs go to `jobs.db` (SQLite) as `new`.
+2. **Prepare**, 4 jobs at a time (`WORKERS`): **Jev** (OpenRouter's decision model) says whether the job
+   matches your CV (if not, it's `skipped`), then a CV tailored from your `cv.yaml` (a text-only model call,
+   rendered with RenderCV). Only API calls, so parallel is safe. The job becomes `ready`.
+3. **Apply**, one job at a time, in your own browser (Chrome by default; Brave, Edge or any Chromium-based one)
+   through Playwright MCP: a **fresh** [LangChain](https://docs.langchain.com) agent per job, running an
+   [OpenRouter](https://openrouter.ai) model (`~deepseek/deepseek-flash-latest` by default, see [Model](#model)),
+   opens the job, uploads the PDF, fills Easy Apply from `answers.md`, submits and logs `applied`, `skipped` or
+   `failed`. For strong matches it then emails the hiring team (experimental, see [Hiring team email](#hiring-team-email)).
 
-It stops when it reaches `--max-applies`, `--max-time` or `--max-pages`, or when the results run out.
+The queues between stages are small: when applying stops, only a few jobs were scraped and tailored ahead.
+The limits are enforced by the code, not asked of the model: it stops at `--max-applies` or `--max-time`
+(finishing the current job), and when the results (or `--max-pages`) run out. Each application gets at most 15
+minutes and 80 model calls; past that it's logged `failed` and the next job starts with a clean context.
 
 Quick help: `uv run jobs.py -h` (see [Command reference](#command-reference)).
 
 ```
-jobs.py run ──► LangChain agent (OpenRouter model) ──► Playwright MCP (npx) ──► your browser (.browser-profile/<browser>/)
-                  │  tools, in-process:
-                  ├─► check_fit ──► Jev (OpenRouter Decisions API) ──► APPLY / SKIP
-                  ├─► tailor_cv ──► model, text only ──► cv yaml ──► rendercv ──► CV.pdf
-                  ├─► log_job ──► jobs.db  (returns LIMIT REACHED to stop)
-                  │        └─► strong match: Hunter email ──► model writes email ──► SMTP (only saved without SMTP)
-                  └─► report_issue ──► issues.log
+jobs.py run
+  1 scrape  ── public job pages (urllib, 1 request/s) ──► jobs.db: new
+  2 prepare ── 4 at a time: Jev fit ──► skipped | model ──► cv yaml ──► rendercv ──► CV.pdf ──► jobs.db: ready
+  3 apply   ── 1 at a time: new LangChain agent ──► Playwright MCP (npx) ──► your browser (.browser-profile/<browser>/)
+                 tools: log_job ──► jobs.db: applied | skipped | failed
+                           └─► strong match: Hunter email ──► model writes email ──► SMTP (only saved without SMTP)
+                        report_issue ──► issues.log      stop_run (login page, captcha) ──► ends the run
 ```
 
 ## Files
 
 | Path | What it is | You edit it? |
 |---|---|---|
-| `jobs.py` | Everything: the `run`, `login` and `tailor` commands, the agent, its tools and its prompt | Rarely |
+| `jobs.py` | Everything: the `run`, `login` and `tailor` commands, the pipeline, the agent, its tools and its prompt | Rarely |
+| `tests/` | `uv run pytest -q`: no network, browser or API keys (saved public job pages, fake models) | When you change `jobs.py` |
 | `cv.yaml` | Your base CV in RenderCV format. Its `design`, `locale` and `settings` are kept in every tailored CV | **Yes** |
 | `answers.md` | Answers to Easy Apply questions. The agent only uses this file and `cv.yaml` | **Yes** |
 | `search.toml` | Default search: position, location, limits, filters, agent, browser | **Yes** |
 | `base_cv.pdf` | Untailored CV, uploaded when tailoring fails. Regenerate it after editing `cv.yaml` | No |
 | `docs/filters.md` | Every search filter and its LinkedIn URL code | — |
-| `applications/<company-title>/` | Per job: `CV.yaml` and `CV.pdf` | Generated |
+| `applications/<company-title-jobid>/` | Per job: `CV.yaml` and `CV.pdf` | Generated |
 | `.env` | API keys and SMTP settings (see [Setup](#setup-once)) | **Yes** |
 | `jobs.db` | SQLite, one row per job: status, note, Jev's fit, hiring team name, job description, tailored CV YAML, contact email, email subject/body/sent time | Generated |
 | `applied.jsonl` | The old log. Imported into `jobs.db` when it's created, unused after that | Old |
@@ -104,8 +113,10 @@ drive its own builds of those).
 The default, `~deepseek/deepseek-flash-latest`, always points at DeepSeek's latest Flash model. The same model drives
 the browser, tailors the CVs and fills `answers.md`.
 
-The agent is LangChain's `create_agent` with the Playwright MCP tools (through `langchain.mcp.MCPAdapter`) plus
-four of its own: `check_fit`, `tailor_cv`, `log_job` and `report_issue`. It has no shell and no file access.
+For each job the agent is a new LangChain `create_agent` with the Playwright MCP tools (through
+`langchain.mcp.MCPAdapter`, one browser shared by every job) plus three of its own: `log_job`, `report_issue`
+and `stop_run`. It has no shell and no file access. Middleware caps it at 80 model calls (`MAX_MODEL_CALLS`)
+and clears old page snapshots from its context.
 
 ## Running
 
@@ -131,8 +142,8 @@ uv run jobs.py run --model anthropic/claude-sonnet-4.6
 | `model` / `-m`, `--model` | OpenRouter model id, see [Model](#model). Default `~deepseek/deepseek-flash-latest` |
 | `browser` / `-b`, `--browser` | Browser to drive, see [Browsers](#browsers). Default `chrome` |
 | `max_applies` / `--max-applies N` | Stop after N **successful** applications this run. `0` = unlimited |
-| `max_time` / `--max-time H` | Stop after H hours (e.g. `1.5`); the agent finishes the current job first, and is killed 10 min later if it doesn't stop. `0` = unlimited |
-| `max_pages` / `--max-pages N` | Result pages to go through (25 jobs each). `0` = until results run out |
+| `max_time` / `--max-time H` | Stop after H hours (e.g. `1.5`), finishing the current job (15 min at most). `0` = unlimited |
+| `max_pages` / `--max-pages N` | Public result pages to scrape (10 jobs each). `0` = until results run out |
 | `posted`, `experience`, `workplace`, `job_type`, `sort`, `distance`, `under_10_applicants`, `filter` | Search filters, see [docs/filters.md](docs/filters.md). A `filter` given as a flag is added to the list in the file |
 | `--dry-run` | Print the search URL and exit |
 | `-v` / `-q` | Live progress log: `-v` adds timings, URLs and render errors, `-q` shows only application results. Everything also goes to `run.log` |
@@ -152,21 +163,25 @@ While the agent works, `run` prints what's happening, in color:
 
 ```
 22:16:32 searching "ai engineer" in San Francisco, stop after 2 applies
-22:16:32 agent started (~deepseek/deepseek-flash-latest, chrome), browsing LinkedIn... (-v for more detail)
-22:17:05 tailoring CV: ACME — AI Engineer
-22:17:29 CV ready in 24s: applications/acme-ai-engineer/CV.pdf
-22:18:40 applied: ACME — AI Engineer  [1/2 applied]
-22:19:02 skipped: Foo — ML Engineer (required: German)  [1/2 applied]
-22:25:13 agent finished (exit 0): 2 applied this run
+22:16:32 pipeline started (~deepseek/deepseek-flash-latest, chrome): scraping public job pages, 4 CVs at a time, ...
+22:16:36 fit 0.81: ACME — AI Engineer
+22:16:36 tailoring CV: ACME — AI Engineer
+22:16:37 skipped: Bar — Data Analyst (not compatible (fit 0.12))
+22:17:00 CV ready in 24s: applications/acme-ai-engineer-4472284210/CV.pdf
+22:18:40 applied: ACME — AI Engineer
+22:18:40 1/2 applied
+22:19:02 skipped: Foo — ML Engineer (required: German)
+22:19:02 1/2 applied
+22:25:13 run finished (exit 0): 2 applied this run
 ```
 
-Green = applied, yellow = skipped or warning, red = failed or error. `-v` adds grey debug lines (model timings,
-job URLs, RenderCV errors), `-q` keeps only the application results. Events go through `run.log`, which `run` follows; the file keeps every event of every run. Between
-"agent started" and the first job it's quiet: that's the agent browsing LinkedIn. The agent's own summary is
-printed when it finishes.
+Green = applied, yellow = skipped or warning, red = failed or error. `-v` adds grey debug lines (every job
+found, model timings, job URLs, RenderCV errors), `-q` keeps only the application results. Events go through
+`run.log`, which `run` follows; the file keeps every event of every run.
 
-`Ctrl+C` stops at any time. Jobs already logged are skipped on the next run, and so are jobs LinkedIn
-marks as "Applied".
+`Ctrl+C` stops at any time. Nothing is lost: jobs already logged are never scraped again, and jobs left
+`new` or `ready` are picked up first on the next run (`ready` ones straight into the browser, their CV is
+done). A job you already applied to by hand is logged `skipped` when the agent sees LinkedIn's "Applied".
 
 ### Debug logs
 
@@ -174,8 +189,8 @@ Every `run` writes a folder `logs/<YYYYMMDD-HHMMSS>/`, whose path is printed at 
 
 | File | What it is | Look here when |
 |---|---|---|
-| `prompt.txt` | The command line and the exact prompt the agent got | The agent ignored an instruction or a filter |
-| `agent.txt` | The agent's transcript: every model message and tool call/result | It stopped early or said something odd |
+| `prompt.txt` | The command line and the system prompt every job's agent got | The agent ignored an instruction |
+| `<job id>.txt` | One job's agent transcript: every model message and tool call/result | That job failed or was logged oddly |
 | `events.log` | This run's events (all levels, including debug) | You want the timeline |
 | `browser/session-*/session.md` | Every browser action the agent took, with its arguments and the page snapshot it got back | It got stuck on a popup or clicked the wrong thing |
 
@@ -259,7 +274,7 @@ search:
 limits (0 = unlimited):
   --max-applies N       stop after N successful applications [now: 10]
   --max-time HOURS      stop after HOURS (e.g. 1.5), finishing the current job first [now: 0]
-  --max-pages N         result pages to go through, 25 jobs each [now: 3]
+  --max-pages N         result pages to go through, 10 jobs each [now: 3]
 
 model, browser and output:
   -m, --model MODEL     OpenRouter model id that drives the browser and writes the CVs [now:
@@ -303,15 +318,14 @@ options:
 
 ## How it behaves
 
-**Choosing jobs.** It takes every Easy Apply job in the results, in order, skipping any job that's
-already logged or marked "Applied". For each one it calls `check_fit`, which sends your `cv.yaml` and the job
-description to Jev (`typesafe/jev-1.13`, [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev-tutorial),
+**Choosing jobs.** It takes every Easy Apply job in the public results, in order, skipping any job already in
+`jobs.db`. For each one it sends your `cv.yaml` and the job description to Jev (`typesafe/jev-1.13`, [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev-tutorial),
 ~$0.00002 a call) with one yes/no question: does the CV meet the job's must-haves (stack, seniority, languages,
 location or work permit)? Jev answers with a probability. Below 0.5 (`FIT_APPLY` in `jobs.py`) the job is logged
 as `skipped` with note `not compatible (fit 0.23)`. If the API fails (it's alpha), the job is applied to anyway.
 The fit of every job is in `jobs.db`: raise the threshold if it lets bad jobs through.
 
-**CV tailoring** (`tailor_cv` tool). The model (a plain text call, no tools) gets your `cv.yaml` and the job description and returns a new
+**CV tailoring** (before the browser opens the job, 4 at a time). The model (a plain text call, no tools) gets your `cv.yaml` and the job description and returns a new
 YAML file. The rules it's given:
 
 - It picks the job's 5-10 key keywords. Those your CV supports go first and loud, in the job's own wording:
@@ -334,15 +348,16 @@ unticks "Follow company" before submitting.
 
 **Popups and getting stuck.** The agent closes unexpected popups (Premium ads, "Save this application?",
 surveys...) with Escape or their close button, and handles native browser dialogs. If it's stuck on the same
-job after 3 attempts, it logs that job as `failed` and moves on.
+step after 3 attempts, it logs the job as `failed`. If it doesn't (15 minutes, 80 model calls, a crash, or it
+ends without logging), the code logs it `failed`, and the next job starts with a fresh agent.
 
-**Guardrails in the prompt.** The agent must never pay for anything, message anyone on LinkedIn, or edit your
-profile, and it stops on a login page or captcha.
+**Guardrails.** In the prompt: the agent must never pay for anything, message anyone on LinkedIn, or edit your
+profile. On a login page or captcha it calls `stop_run`, which ends the whole run (the next jobs would hit it too).
 
 ### Hiring team email
 
 Experimental. After applying, `log_job` checks the job's row: if Jev's fit is at least 0.9 (`FIT_EMAIL`)
-and the job showed someone in "Meet the hiring team", it asks Hunter's Email Finder for that person's email
+and the public job page showed someone in "Meet the hiring team", it asks Hunter's Email Finder for that person's email
 at the company. Only a verified email (status `valid` or score ≥ 90) is used; otherwise nothing happens. The
 model then writes the email (a plain text call): the job's language, at most 300 characters, plain prose
 with no lists or special characters, one or two real facts from your CV, a request for a short call. The
@@ -389,7 +404,7 @@ To retry a job, delete its row: `sqlite3 jobs.db "DELETE FROM jobs WHERE url LIK
 | Agent says it's not logged in, or hits a captcha | Re-run `uv run jobs.py login` and log in |
 | Agent sees a login page right after `login` | You logged in by opening the browser yourself: use `uv run jobs.py login --browser <same one>` |
 | "Profile in use" / browser won't start | Close the `login` window, or any window using `.browser-profile/<browser>/` |
-| Upload fails or the path is refused | Add `"--allow-unrestricted-file-access"` to the `npx` args in `agent_loop()` in `jobs.py` |
+| Upload fails or the path is refused | Add `"--allow-unrestricted-file-access"` to the `npx` args in `browse()` in `jobs.py` |
 | Many `skipped` entries | Add the logged questions to `answers.md` |
 | A filter doesn't apply | Set it by hand on LinkedIn, copy the param from the URL, pass it with `--filter` |
 | `CV render failed` | Check `applications/<job>/CV.yaml`, and check that `cv.yaml` itself renders |
