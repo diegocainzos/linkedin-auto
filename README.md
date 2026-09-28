@@ -69,7 +69,7 @@ Then:
 1. Put your CV in `cv.yaml` (RenderCV YAML) and check it renders:
    `uv run rendercv render cv.yaml --pdf-path base_cv.pdf -nomd -nohtml -nopng`
 2. Fill every `TODO` in `answers.md`.
-3. Optional, create `.env` (gitignored) for the compatibility check and the hiring team email:
+3. Optional: `cp .env.example .env` (gitignored) and fill it in, for the compatibility check and the hiring team email:
    ```bash
    OPENROUTER_API_KEY=sk-or-...        # Jev compatibility check; without it every job is applied to
    HUNTER_API_KEY=...                  # hiring team email lookup; without it no emails

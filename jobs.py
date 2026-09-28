@@ -24,9 +24,9 @@ MCP = "linkedin_playwright"  # the browser MCP server's name in every agent CLI
 ISSUES, DB = ROOT / "issues.log", ROOT / "jobs.db"
 FIT_APPLY, FIT_EMAIL = 0.5, 0.9  # Jev's "compatible" probability: apply from 0.5, also email the hiring team from 0.9
 JEV = "typesafe/jev-1.13"  # pinned: ~typesafe/jev-latest could change answers under us
-for _l in (ROOT / ".env").read_text().splitlines() if (ROOT / ".env").exists() else []:  # KEY=VALUE, no dependency
+for _l in (ROOT / ".env").read_text().splitlines() if (ROOT / ".env").exists() else []:  # KEY=VALUE  # comment, no dependency
     if "=" in _l and not _l.lstrip().startswith("#"):
-        os.environ.setdefault(_l.split("=", 1)[0].strip(), _l.split("=", 1)[1].strip().strip("'\""))
+        os.environ.setdefault(_l.split("=", 1)[0].strip(), _l.split("=", 1)[1].split(" #")[0].strip().strip("'\""))
 BROWSERS = {  # macOS; any other Chromium-based browser works by passing its executable path
     "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "brave": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
