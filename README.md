@@ -348,9 +348,12 @@ YAML file. The rules it's given:
 If RenderCV rejects the YAML, the error goes back to the model for one retry. If that fails too, the agent
 uploads `base_cv.pdf`. Before relying on it, spot-check a few `applications/*/CV.yaml` against `cv.yaml`.
 
-**Form filling.** Answers come only from `answers.md` and `cv.yaml`. If a required question isn't
-covered, the agent discards that application and logs it as `skipped` with the question as the note. It
-unticks "Follow company" before submitting.
+**Form filling.** Answers come from `answers.md` and `cv.yaml`. A question they don't cover never costs an
+application: the agent infers the answer from your CV, or answers Yes / the most favorable option / a number
+consistent with your CV, and adds the question with that answer to the end of `answers.md` ("Answered by the
+agent"), so later jobs give the same answer. Review that section after a run and correct anything wrong.
+Work authorization, visas, sponsorship, degrees and legal questions are the exception: only from `answers.md`.
+It unticks "Follow company" before submitting.
 
 **Popups and getting stuck.** The agent closes unexpected popups (Premium ads, "Save this application?",
 surveys...) with Escape or their close button, and handles native browser dialogs. If it's stuck on the same
@@ -379,7 +382,10 @@ sqlite3 jobs.db "SELECT company, contact_email, email_body, email_sent FROM jobs
 ## Improving over time
 
 ```bash
-# Which questions blocked applications? Add the answers to answers.md
+# Questions the agent answered on its own: review and correct them
+sed -n '/Answered by the agent/,$p' answers.md
+
+# Why jobs were skipped
 sqlite3 jobs.db "SELECT note FROM jobs WHERE status = 'skipped'"
 
 # What got applied, and how well it fit

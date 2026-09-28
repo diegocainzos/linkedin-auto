@@ -22,6 +22,8 @@ def sandbox(tmp_path, monkeypatch):
     for name, f in {"DB": "jobs.db", "EVENTS": "run.log", "ISSUES": "issues.log", "LOG": "applied.jsonl"}.items():
         monkeypatch.setattr(jobs, name, tmp_path / f)
     monkeypatch.setattr(jobs, "APPS", tmp_path / "applications")
+    (tmp_path / "answers.md").write_text(jobs.ANSWERS.read_text())  # the agent writes to it
+    monkeypatch.setattr(jobs, "ANSWERS", tmp_path / "answers.md")
     monkeypatch.setattr(jobs, "DELAY", 0)
 
 
@@ -486,6 +488,31 @@ def test_apply_one_skip_is_kept(monkeypatch, tmp_path):
     r = apply_with(monkeypatch, tmp_path, [call("log_job", status="skipped", note="asks for a driving licence"),
                                            AIMessage("done")])
     assert r["status"] == "skipped"
+
+
+def test_remember_goes_to_answers_md_once():
+    jobs.remember("Days using a coding agent in the last 30?", "30", "https://www.linkedin.com/jobs/view/1/")
+    jobs.remember("Days using a coding agent in the last 30?", "25", "https://www.linkedin.com/jobs/view/2/")
+    jobs.remember("Sold on Wallapop?", "Yes", "https://www.linkedin.com/jobs/view/2/")
+    text = jobs.ANSWERS.read_text()
+    assert text.count(jobs.NOTED) == 1
+    section = text.split(jobs.NOTED)[1]
+    assert "- Days using a coding agent in the last 30?: 30" in section and ": 25" not in section
+    assert "- Sold on Wallapop?: Yes" in section
+    assert "## Contact" in text  # the rest of the file is untouched
+
+
+def test_noted_answers_reach_the_next_job(monkeypatch, tmp_path):
+    """An answer the agent gave once is in <candidate_answers> for every later job: same question, same answer."""
+    r = apply_with(monkeypatch, tmp_path, [call("note_question", question="Sold on Wallapop?", answer="Yes"),
+                                           call("log_job", status="applied"), AIMessage("done")])
+    assert r["status"] == "applied"
+    assert "- Sold on Wallapop?: Yes" in jobs.system_prompt()
+
+
+def test_prompt_answers_uncovered_questions_instead_of_skipping():
+    p = jobs.system_prompt()
+    assert "note_question" in p and "discard the application" not in p
 
 
 def test_apply_one_stop_raises(monkeypatch, tmp_path):

@@ -409,8 +409,11 @@ SYSTEM = """You apply to ONE LinkedIn job with Easy Apply. Drive the browser wit
 1. Open the job URL. If the page says you already applied, the job no longer accepts applications, or there is
    no "Easy Apply" button, call log_job with status skipped and the reason as note, and stop.
 2. Click "Easy Apply". At the resume step click "Upload resume", then call browser_file_upload with the given PDF path, and make sure it is selected.
-3. Fill every step truthfully from <candidate_answers> and <cv>. Never invent facts.
-   If a required question cannot be answered truthfully from them, discard the application and log it as skipped with the question as note.
+3. Fill every step from <candidate_answers> and <cv>. Never skip a job because of a question they don't cover:
+   answer it and move on. Infer the answer from the CV when you can; otherwise answer Yes to yes/no questions,
+   pick the most favorable option, and give a number consistent with the CV (years: the CV's experience; frequency:
+   high). Then call note_question with the question and the answer you gave, so it's reused and reviewed.
+   Exception: work authorization, visas, sponsorship, degrees and legal questions only from <candidate_answers>.
 4. Uncheck "Follow company" if present, Submit, dismiss the confirmation dialog.
 5. Call log_job with the status and a short note, then reply with one line. Never open another job.
 
@@ -427,6 +430,20 @@ couldn't fill, an upload that failed, anything unexpected. Not needed for normal
 If LinkedIn shows a login page, a captcha or a security check, call stop_run with what you saw.
 Never click anything that pays, messages people, or edits the LinkedIn profile.
 Keep snapshots small: prefer targeted clicks over repeated full-page snapshots."""
+
+
+NOTED = "## Answered by the agent (review these)"
+
+
+def remember(question: str, answer: str, url: str) -> str:
+    """A question answers.md didn't cover: its answer goes at the end of answers.md, so the next jobs give the same
+    one and you can correct it. A question already there is kept as it is."""
+    text = ANSWERS.read_text()
+    q = " ".join(question.split()).rstrip(":")
+    if f"- {q}:" not in text:
+        ANSWERS.write_text(text.rstrip("\n") + ("" if NOTED in text else f"\n\n{NOTED}\n") + f"\n- {q}: {' '.join(answer.split())}\n")
+        say(f"new question answered: {q} → {answer}  ({url})")
+    return "noted"
 
 
 def system_prompt() -> str:
@@ -545,12 +562,17 @@ async def apply_one(j: dict, model: str, browser_tools: list, out: Path) -> None
         return issue(text, j["url"])
 
     @tool
+    def note_question(question: str, answer: str) -> str:
+        """A form question <candidate_answers> doesn't cover, and the answer you gave to it."""
+        return remember(question, answer, j["url"])
+
+    @tool
     def stop_run(reason: str) -> str:
         """LinkedIn shows a login page, a captcha or a security check: stops the whole run."""
         stop.append(reason)
         return "stopping"
 
-    agent = create_agent(llm(model), [*browser_tools, log_job, report_issue, stop_run], system_prompt=system_prompt(),
+    agent = create_agent(llm(model), [*browser_tools, log_job, report_issue, note_question, stop_run], system_prompt=system_prompt(),
                          middleware=[ContextEditingMiddleware(edits=[ClearToolUsesEdit()]),  # old page snapshots
                                      ModelCallLimitMiddleware(run_limit=MAX_MODEL_CALLS, exit_behavior="end")])
     task = f"Apply to {j['title']} at {j['company']}: {j['url']}\nResume PDF to upload: {j['pdf']}"

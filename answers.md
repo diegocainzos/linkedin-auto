@@ -1,8 +1,9 @@
 # Easy Apply answers
 
-The agent answers Easy Apply questions ONLY from this file and `cv.yaml`.
-If a *required* question is not covered here, it skips the job and logs the question
-(`applied.jsonl`, status `skipped`), so you can add the answer and it gets covered next run.
+The agent answers Easy Apply questions from this file and `cv.yaml`.
+A question not covered here doesn't stop an application: the agent infers the answer from `cv.yaml`, or
+answers Yes / the most favorable option, and adds the question with its answer at the end of this file
+("Answered by the agent"). Later jobs reuse that answer. Review that section and correct what's wrong.
 
 How to fill:
 - Fill in every line still marked as to do. Delete lines that don't apply to you instead.
@@ -11,7 +12,7 @@ How to fill:
 
 ## Agent policy
 - Numeric fields: integers only, no units ("3", not "3 years").
-- Yes/No questions about a skill with no line below: answer "No". Never claim a skill not in cv.yaml.
+- Yes/No questions with no line below: answer "Yes".
 - Optional free-text fields (cover letter, "anything else"): leave empty.
 - Optional questions not covered here: leave them blank or pick "Prefer not to say".
 - Voluntary self-identification (gender, ethnicity, veteran, disability): answer exactly what is under "Self-identification".
