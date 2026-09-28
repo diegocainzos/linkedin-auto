@@ -304,6 +304,9 @@ def scrape(search: str, max_pages: int) -> Iterator[dict]:
             if not j:
                 say(f"job page without a job, skipped: {url}", "warn")
                 continue
+            if "capgemini" in j["company"].lower():  # the current employer
+                save(url, ts=time.time(), status="skipped", note="current employer", **j)
+                continue
             save(url, ts=time.time(), status="new", **j)
             say(f"found: {j['company']} — {j['title']}", "debug")
             yield {"url": url, **j}

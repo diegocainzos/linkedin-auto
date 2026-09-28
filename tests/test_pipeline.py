@@ -168,6 +168,14 @@ def test_scrape_skips_known_jobs_and_repeats(monkeypatch):
     assert sum("/jobPosting/" in u for u in fetched) == 2  # known jobs cost no request
 
 
+def test_scrape_never_queues_the_current_employer(monkeypatch):
+    fake_site(monkeypatch, [["1", "2"]])
+    parse = jobs.parse_job
+    monkeypatch.setattr(jobs, "parse_job", lambda p: parse(p) | ({"company": "Capgemini Engineering"} if "Job 2" in p else {}))
+    assert [j["url"][-2] for j in jobs.scrape(SEARCH_URL, 0)] == ["1"]
+    assert row("https://www.linkedin.com/jobs/view/2/")["status"] == "skipped"
+
+
 def test_scrape_skips_a_broken_job_page(monkeypatch):
     fake_site(monkeypatch, [["1", "2", "3"]], broken={"2"})
     assert [j["url"][-2] for j in jobs.scrape(SEARCH_URL, 0)] == ["1", "3"]
